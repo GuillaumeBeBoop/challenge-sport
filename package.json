@@ -1,0 +1,23 @@
+{
+  "name": "challenge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Challenge sportif à deux — journal d'activités et calcul des points",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.1"
+  },
+  "overrides": {
+    "qs": "^6.16.0"
+  }
+}

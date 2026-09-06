@@ -1,0 +1,20 @@
+services:
+  challenge:
+    build: .
+    image: challenge:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TZ: Europe/Paris
+      NODE_ENV: production
+    # Le service écoute en HTTP sur la loopback : le TLS est l'affaire du
+    # reverse proxy du VPS, pas du process Node.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # Un volume monté sur le RÉPERTOIRE : le mode WAL crée `-wal` et `-shm`
+      # à côté du fichier, et un bind-mount de fichier unique casserait tout.
+      - challenge-data:/data
+
+volumes:
+  challenge-data:

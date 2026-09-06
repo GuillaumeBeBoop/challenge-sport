@@ -1,0 +1,80 @@
+# Challenge sportif
+
+Journal d'activités et calcul automatique des points pour un challenge à deux,
+noté sur 100 points par semaine. Le barème complet est rappelé dans l'application
+elle-même, section « Le barème ».
+
+Pas de compte : un code d'accès partagé, et chacun saisit ses lignes. Chaque
+ligne garde le nom de qui l'a saisie.
+
+## Déployer
+
+```sh
+cp .env.example .env
+$EDITOR .env            # choisir ACCESS_CODE
+docker compose up -d --build
+```
+
+Le service écoute sur `127.0.0.1:3000`. Le TLS est l'affaire du reverse proxy du
+VPS — il n'y a pas de HTTPS dans le process Node. Exemple pour Caddy :
+
+```
+challenge.exemple.fr {
+    reverse_proxy 127.0.0.1:3000
+}
+```
+
+En HTTP simple (réseau local, test), décommenter `COOKIE_SECURE=false` dans
+`.env` : sans ça le navigateur refuse le cookie de session et la connexion
+échoue en boucle.
+
+Si le VPS est en arm64, construire l'image sur le VPS (ou via `docker buildx
+--platform`) plutôt que localement en x64.
+
+## En développement
+
+```sh
+npm install
+ACCESS_CODE=secret npm run dev
+npm test
+```
+
+## Où vivent les règles
+
+Dans `src/scoring.js`, et nulle part ailleurs. Le front n'a aucune connaissance
+du barème : il affiche les points et les justifications que l'API a calculés.
+`test/scoring.test.js` est la spécification exécutable des règles — pour changer
+une règle, on modifie d'abord son test.
+
+Les points ne sont jamais stockés. Ils sont recalculés à chaque lecture depuis
+les lignes brutes : une pesée corrigée en semaine 3 répare automatiquement
+toutes les semaines suivantes.
+
+## Sauvegarde et restauration
+
+L'application écrit chaque jour une copie dans `/data/backups/` (les 14
+dernières sont conservées) via `db.backup()` — jamais un `cp`, qui corromprait
+une base en mode WAL.
+
+```sh
+# Copier une sauvegarde hors du conteneur
+docker compose cp challenge:/data/backups ./backups
+
+# Restaurer
+docker compose down
+docker compose run --rm -T challenge sh -c 'cp /data/backups/challenge-AAAA-MM-JJ.sqlite /data/challenge.sqlite && rm -f /data/challenge.sqlite-wal /data/challenge.sqlite-shm'
+docker compose up -d
+```
+
+Le lien « Exporter le journal » en bas de page télécharge tout le journal en
+JSON — plus pratique à relire qu'un instantané binaire.
+
+## Réglages
+
+Dans l'application, section « Réglages » : les noms des joueurs, le premier
+lundi du challenge et le nombre de semaines prévues.
+
+La date de départ se verrouille dès qu'une ligne existe : la déplacer
+renumérote les semaines et décale la phase du cycle de défis, ce qui ferait
+rétroactivement basculer des défis déjà validés. L'application demande une
+confirmation explicite.

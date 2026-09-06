@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Challenge — tableau de marche</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- Écran de code d'accès. Pas de compte : un seul code partagé. -->
+<div class="gate" id="gate" hidden>
+  <h1>Challenge</h1>
+  <p>Entrez le code d’accès partagé.</p>
+  <form id="gateForm">
+    <input type="password" id="code" autocomplete="current-password" placeholder="code" required>
+    <button class="primary" type="submit">Entrer</button>
+  </form>
+  <p class="hint bad" id="gateError" hidden></p>
+</div>
+
+<div class="page" id="app" hidden>
+
+  <div class="top">
+    <div>
+      <p class="eyebrow">Challenge sportif · 100 pts / semaine</p>
+      <h1>Tableau de marche</h1>
+    </div>
+    <div class="weeknav">
+      <button class="nav" id="prev" aria-label="Semaine précédente">&#9664;</button>
+      <div class="wk" id="wkLabel">&nbsp;<small>&nbsp;</small></div>
+      <button class="nav" id="next" aria-label="Semaine suivante">&#9654;</button>
+    </div>
+  </div>
+
+  <div class="banner final" id="final" hidden>
+    <span id="finalText"></span>
+    <button id="extend">Prolonger d’un cycle</button>
+  </div>
+
+  <div class="banner" id="defiBanner"></div>
+  <div class="banner err" id="error" hidden></div>
+
+  <div class="board" id="board"></div>
+
+  <section>
+    <div class="sec-head"><h2>Enregistrer</h2></div>
+    <div class="who">
+      <span class="lbl">Je suis</span>
+      <div class="seg" id="whoSeg"></div>
+    </div>
+    <div class="forms">
+
+      <div class="fbox">
+        <h3>Séance</h3>
+        <div class="frow">
+          <select id="sType" aria-label="Discipline">
+            <option value="course">Course</option>
+            <option value="marche">Marche</option>
+            <option value="velo">Vélo</option>
+          </select>
+          <input type="text" id="sDur" inputmode="numeric" placeholder="32:45" aria-label="Durée">
+        </div>
+        <div class="frow">
+          <input type="date" id="sDate" aria-label="Date de la séance">
+          <button class="primary" id="addS">Ajouter</button>
+        </div>
+        <p class="hint" id="sHint">Temps en mouvement Garmin, pauses exclues. En minutes (<span class="mono">32</span>) ou en <span class="mono">mm:ss</span>.</p>
+      </div>
+
+      <div class="fbox">
+        <h3>Pompes</h3>
+        <div class="frow">
+          <input type="number" id="pCount" min="1" step="5" placeholder="nombre" aria-label="Nombre de pompes">
+        </div>
+        <div class="frow">
+          <input type="date" id="pDate" aria-label="Date des pompes">
+          <button class="primary" id="addP">Ajouter</button>
+        </div>
+        <p class="hint" id="pHint">10 pompes = 1 pt, cumulé sur la semaine. 30 pompes dans la journée rendent la journée active.</p>
+      </div>
+
+      <div class="fbox">
+        <h3>Pesée</h3>
+        <div class="frow">
+          <input type="number" id="wKg" min="30" max="400" step="0.05" placeholder="kg" aria-label="Poids en kilos">
+          <button class="primary" id="addW">Noter</button>
+        </div>
+        <p class="hint" id="wHint"></p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Journal de la semaine</h2><span class="lbl" id="jCount"></span></div>
+    <div id="journal"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Le barème</h2></div>
+
+    <details>
+      <summary>Les 5 sources de points</summary>
+      <div class="dbody">
+        <div class="tw"><table>
+          <thead><tr><th>Source</th><th>Règle</th><th>Max</th></tr></thead>
+          <tbody>
+            <tr><td><b>Activités</b></td><td>1 pt / 10 min, arrondi par séance. Garmin, temps réel, plus de 20 min, pauses exclues.</td><td class="n">45</td></tr>
+            <tr><td><b>Pompes</b></td><td>10 pompes = 1 pt, cumul de la semaine, arrondi une seule fois.</td><td class="n">25</td></tr>
+            <tr><td><b>Régularité</b></td><td>Journées actives : 2 j = 3, 3 j = 6, 4 j = 9, 5 j = 12, 6 j et + = 15.</td><td class="n">15</td></tr>
+            <tr><td><b>Poids</b></td><td>Perte depuis la pesée précédente : 0,25 = 2, 0,50 = 4, 0,75 = 6, 1 kg et + = 10.</td><td class="n">10</td></tr>
+            <tr><td><b>Défi</b></td><td>Tout ou rien, validé automatiquement d’après le journal.</td><td class="n">5</td></tr>
+          </tbody>
+        </table></div>
+        <p><b>Journée active</b> = au moins une séance valide (plus de 20 min) ou 30 pompes dans la journée.
+        <b>Semaine</b> = lundi 00 h → dimanche 23 h 59. Chaque source est plafonnée séparément :
+        100 points maximum par semaine. Les plafonds limitent les points, jamais les faits — une séance
+        au-delà de 45 points rend quand même sa journée active.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Les défis du cycle</summary>
+      <div class="dbody">
+        <div class="tw"><table><tbody id="defiList"></tbody></table></div>
+        <p>Une fois les quatre passés, les défis reprennent dans le même ordre.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Ce qui ne compte pas</summary>
+      <div class="dbody">
+        <p>Les pas comptés passivement par la montre · une activité saisie à la main dans Garmin
+        Connect après coup · une séance de 20 min ou moins · les minutes au-delà du plafond ·
+        les autres sports, sauf accord des deux joueurs avant le début de la semaine.</p>
+        <p>Pas de compte, pas de mot de passe individuel : chacun saisit ses lignes, on se fait
+        confiance. Chaque ligne garde le nom de qui l’a saisie.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Réglages</summary>
+      <div class="dbody">
+        <div class="setrow">
+          <span class="lbl" style="margin:0">Premier lundi</span>
+          <input type="date" id="startDate">
+          <button id="saveStart">Appliquer</button>
+        </div>
+        <div class="setrow">
+          <span class="lbl" style="margin:0">Semaines prévues</span>
+          <input type="number" id="weeksTotal" min="1" max="52" step="1">
+          <button id="saveWeeks">Appliquer</button>
+        </div>
+        <p id="setHint"></p>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <span id="foot">Les points se recalculent tout seuls à partir du journal.</span>
+    <span><a href="/api/export">Exporter le journal</a> · <a href="#" id="logout">Se déconnecter</a></span>
+  </footer>
+</div>
+
+<script src="/app.js" type="module"></script>
+</body>
+</html>
