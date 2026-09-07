@@ -65,6 +65,41 @@ const MIGRATIONS = [
     PRIMARY KEY (player_id, week_start)
   );
   `,
+  // On ne saisit plus un poids mais la PERTE de la semaine : c'est le chiffre
+  // que le barème note. Les pesées déjà enregistrées sont converties en écarts
+  // par rapport à la pesée antérieure la plus proche — exactement le calcul que
+  // faisait api.js à la lecture, donc aucun point ne bouge. La première pesée
+  // de chaque joueur ne se comparait à rien : elle devient une perte de 0.
+  //
+  // La contrainte reste large ici (n'importe quel écart entre 30 et 400 kg
+  // était représentable) ; c'est api.js qui borne la saisie à ±50 kg, avec un
+  // message lisible.
+  `
+  CREATE TABLE weigh_in_v2 (
+    player_id   TEXT NOT NULL REFERENCES player(id),
+    week_start  TEXT NOT NULL CHECK (week_start GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    loss_grams  INTEGER NOT NULL CHECK (loss_grams BETWEEN -400000 AND 400000),
+    measured_on TEXT NOT NULL,
+    author      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (player_id, week_start)
+  );
+
+  INSERT INTO weigh_in_v2 (player_id, week_start, loss_grams, measured_on, author, created_at, updated_at)
+  SELECT w.player_id, w.week_start,
+         COALESCE(
+           (SELECT prev.grams FROM weigh_in prev
+             WHERE prev.player_id = w.player_id AND prev.week_start < w.week_start
+             ORDER BY prev.week_start DESC LIMIT 1),
+           w.grams
+         ) - w.grams,
+         w.measured_on, w.author, w.created_at, w.updated_at
+    FROM weigh_in w;
+
+  DROP TABLE weigh_in;
+  ALTER TABLE weigh_in_v2 RENAME TO weigh_in;
+  `,
 ];
 
 function migrate(db) {

@@ -84,6 +84,17 @@ function parseDuration(raw) {
   return n[0] * 3600 + n[1] * 60 + n[2];
 }
 
+/**
+ * Accepte « 0,4 », « 0.4 », « -0,3 », « +0,4 ». Rend un nombre, ou null si
+ * illisible — jamais 0 par défaut : une perte nulle est une valeur légitime,
+ * la confondre avec une saisie ratée enregistrerait un poids inchangé.
+ */
+function parseKg(raw) {
+  const s = String(raw ?? '').trim().replace(',', '.');
+  if (!/^[+-]?\d+(\.\d+)?$/.test(s)) return null;
+  return Number(s);
+}
+
 function fmtDuration(sec) {
   const h = Math.floor(sec / 3600);
   const m = Math.floor((sec % 3600) / 60);
@@ -92,8 +103,9 @@ function fmtDuration(sec) {
   return s ? `${m} min ${pad(s)}` : `${m} min`;
 }
 
-const fmtKg = (g) => `${(g / 1000).toFixed(2).replace('.', ',')} kg`;
-const fmtLoss = (g) => `${g > 0 ? '−' : '+'}${(Math.abs(g) / 1000).toFixed(2).replace('.', ',')} kg`;
+const fmtKgAbs = (g) => `${(Math.abs(g) / 1000).toFixed(2).replace('.', ',')} kg`;
+/** Signe explicite, sauf pour zéro : « ±0,00 kg » se lirait comme une erreur. */
+const fmtLoss = (g) => (g === 0 ? '0,00 kg' : `${g > 0 ? '−' : '+'}${fmtKgAbs(g)}`);
 
 function fmtDayLong(iso) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -291,9 +303,9 @@ function renderJournal(st) {
     if (!w) continue;
     items.push({
       date: w.measured_on, player: p, author: w.author,
-      what: `Pesée · ${fmtKg(w.grams)}`, points: '—', zero: true,
+      what: `Pesée · ${fmtLoss(w.loss_grams)}`, points: '—', zero: true,
       del: () => {
-        if (!confirm('Supprimer cette pesée ? Les semaines suivantes seront recalculées.')) return null;
+        if (!confirm('Supprimer cette pesée ? Les points poids de la semaine seront perdus.')) return null;
         return api('/weighins', { method: 'DELETE', body: { player: p, week: st.week.number } });
       },
     });
@@ -360,13 +372,22 @@ function renderSettings(st) {
     }));
   }
 
+  // On ne saisit jamais un poids, seulement la perte de la semaine : c'est le
+  // chiffre que le barème note, et c'est ce que la base stocke.
   const w = st.journal.weighIns[me];
   const kg = $('wKg');
-  if (document.activeElement !== kg) kg.value = w ? (w.grams / 1000).toFixed(2) : '';
-  $('wHint').className = 'hint';
-  $('wHint').textContent = st.week.number === 1
-    ? 'Semaine 1 : la pesée sert de référence, elle ne rapporte aucun point.'
-    : `À jeun, même balance. Comparée à la dernière pesée enregistrée. Une seule pesée par semaine — ${w ? 'celle-ci sera remplacée' : 'aucune saisie pour l’instant'}.`;
+  const hint = $('wHint');
+  if (document.activeElement !== kg) {
+    kg.value = w ? (w.loss_grams / 1000).toFixed(2).replace('.', ',') : '';
+  }
+  hint.className = 'hint';
+  hint.textContent = st.week.number === 1
+    ? 'Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g, « -0,3 » si'
+      + ' vous avez pris. Semaine 1 : la saisie sert de point de départ et ne'
+      + ' rapporte aucun point.'
+    : `Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g perdus,`
+      + ` « -0,3 » si vous avez pris. À jeun, même balance. Une seule pesée par`
+      + ` semaine — ${w ? 'celle-ci sera remplacée' : 'aucune saisie pour l’instant'}.`;
 }
 
 function render() {
@@ -498,20 +519,27 @@ $('addP').addEventListener('click', async () => {
 
 $('addW').addEventListener('click', async () => {
   const hint = $('wHint');
-  const kg = Number($('wKg').value);
-  if (!(kg > 0)) {
+  const bad = (msg) => {
     hint.className = 'hint bad';
-    hint.textContent = 'Indiquez un poids.';
-    return;
+    hint.textContent = msg;
+  };
+  const value = parseKg($('wKg').value);
+  if (value === null) {
+    return bad('Nombre de kilos perdus illisible. Attendu : 0,4 — ou -0,3 si vous avez pris.');
   }
+  const loss = Math.round(value * 1000);
+  if (loss < -50000 || loss > 50000) {
+    return bad('Une variation de plus de 50 kg en une semaine : vérifiez le nombre saisi.');
+  }
+
   try {
     const next = await api('/weighins', {
       method: 'PUT',
-      body: { player: me, author: nameOf(me), week: state.week.number, grams: Math.round(kg * 1000) },
+      body: { player: me, author: nameOf(me), week: state.week.number, loss_grams: loss },
     });
     refresh(next);
     hint.className = 'hint ok';
-    hint.textContent = `Pesée de la semaine ${next.week.number} : ${fmtKg(Math.round(kg * 1000))}.`;
+    hint.textContent = `Semaine ${next.week.number} : ${fmtLoss(loss)} depuis la semaine dernière.`;
   } catch (err) {
     hint.className = 'hint bad';
     hint.textContent = err.message;

@@ -97,7 +97,7 @@ function loadRows(db) {
       .all(),
     weighIns: db
       .prepare(
-        `SELECT player_id, week_start, grams, measured_on, author, updated_at
+        `SELECT player_id, week_start, loss_grams, measured_on, author, updated_at
            FROM weigh_in ORDER BY week_start`,
       )
       .all(),
@@ -130,19 +130,15 @@ function computeAll(db) {
 
     for (const p of PLAYERS) {
       const mine = (r) => r.player_id === p;
+      // La perte est déclarée semaine par semaine : la ligne de la semaine se
+      // suffit à elle-même, il n'y a plus de pesée de référence à retrouver.
       const weighIn = rows.weighIns.find((w) => w.player_id === p && w.week_start === from) || null;
-      // Référence = la pesée antérieure la plus récente. Une semaine sautée ne
-      // casse donc pas la chaîne. Pour fermer la faille du yo-yo, remplacer ce
-      // `.at(-1)` par le minimum des pesées antérieures (cf. BASELINE).
-      const baselineWeighIn =
-        rows.weighIns.filter((w) => w.player_id === p && w.week_start < from).at(-1) || null;
 
       scores[p] = scoreWeek({
         weekNumber: n,
         sessions: rows.sessions.filter((r) => mine(r) && inWeek(r)),
         pushups: rows.pushups.filter((r) => mine(r) && inWeek(r)),
         weighIn,
-        baselineWeighIn,
       });
       cumulative[p] += scores[p].total;
     }
@@ -411,17 +407,19 @@ export function createApi(db, { accessCode, secure }) {
       const player = readPlayer(b.player);
       const n = readInt(b.week, { min: 1, max: 520, label: 'La semaine' });
       const weekStart = weekStartOf(n, startDate);
-      const grams = readInt(b.grams, { min: 30000, max: 400000, label: 'Le poids' });
+      // Bornes de saisie : ±50 kg en une semaine est déjà absurde, mais reste
+      // représentable. La contrainte SQL est plus large, cf. la migration.
+      const loss = readInt(b.loss_grams, { min: -50000, max: 50000, label: 'La perte' });
       const measured = b.measured_on && isDate(b.measured_on) ? b.measured_on : weekStart;
 
       // La clé (joueur, semaine) rend structurellement impossible d'avoir deux
       // pesées pour la même semaine : c'est un upsert, jamais un doublon.
       db.prepare(
-        `INSERT INTO weigh_in (player_id, week_start, grams, measured_on, author, created_at, updated_at)
+        `INSERT INTO weigh_in (player_id, week_start, loss_grams, measured_on, author, created_at, updated_at)
          VALUES (@p, @w, @g, @m, @a, @t, @t)
          ON CONFLICT(player_id, week_start)
-         DO UPDATE SET grams = @g, measured_on = @m, author = @a, updated_at = @t`,
-      ).run({ p: player, w: weekStart, g: grams, m: measured, a: readName(b.author, player), t: now() });
+         DO UPDATE SET loss_grams = @g, measured_on = @m, author = @a, updated_at = @t`,
+      ).run({ p: player, w: weekStart, g: loss, m: measured, a: readName(b.author, player), t: now() });
 
       res.json(state(n));
     } catch (err) {

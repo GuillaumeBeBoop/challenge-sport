@@ -52,8 +52,13 @@ du barème : il affiche les points et les justifications que l'API a calculés.
 une règle, on modifie d'abord son test.
 
 Les points ne sont jamais stockés. Ils sont recalculés à chaque lecture depuis
-les lignes brutes : une pesée corrigée en semaine 3 répare automatiquement
-toutes les semaines suivantes.
+les lignes brutes : corriger une ligne suffit, il n'y a jamais de total à
+rafraîchir.
+
+La pesée enregistre les **kilos perdus dans la semaine**, pas un poids : c'est
+le seul chiffre que le barème note, et c'est celui qu'on saisit. Les semaines
+sont donc indépendantes — corriger une perte corrige cette semaine et elle
+seule. La semaine 1 sert de point de départ et ne rapporte aucun point.
 
 ## Sauvegarde et restauration
 

@@ -107,61 +107,45 @@ test('poids — les paliers en grammes, bornes exactes comprises', () => {
     [749, 4], [750, 6], [999, 6], [1000, 10], [2500, 10],
   ];
   for (const [loss, points] of cases) {
-    const s = scoreWeek({
-      weekNumber: 2,
-      weighIn: { grams: 80000 },
-      baselineWeighIn: { grams: 80000 + loss, week_start: MON },
-    });
+    const s = scoreWeek({ weekNumber: 2, weighIn: { loss_grams: loss } });
     assert.equal(s.poids, points, `${loss} g`);
   }
 });
 
-test('poids — 82,40 kg contre 82,15 kg vaut bien 2 pts', () => {
-  // Le cas exact qui casse en flottant : 82.40 - 82.15 === 0.2500000000000284.
-  const s = scoreWeek({
-    weekNumber: 2,
-    weighIn: { grams: 82150 },
-    baselineWeighIn: { grams: 82400, week_start: MON },
-  });
+test('poids — la perte est saisie en grammes entiers, jamais en flottant', () => {
+  // 82,40 kg − 82,15 kg === 0.2500000000000284 en flottant : c'est le front qui
+  // convertit « 0,25 » en 250 g, et le barème ne voit que des entiers.
+  const s = scoreWeek({ weekNumber: 2, weighIn: { loss_grams: 250 } });
   assert.equal(s.poids, 2);
 });
 
 test('poids — une reprise de poids vaut 0, jamais de points négatifs', () => {
-  const s = scoreWeek({
-    weekNumber: 2,
-    weighIn: { grams: 81000 },
-    baselineWeighIn: { grams: 80000, week_start: MON },
-  });
+  const s = scoreWeek({ weekNumber: 2, weighIn: { loss_grams: -1000 } });
   assert.equal(s.poids, 0);
   assert.equal(s.detail.poids.lossGrams, -1000);
 });
 
-test('poids — semaine 1 : la pesée est une référence, pas un échec', () => {
-  const s = scoreWeek({ weekNumber: 1, weighIn: { grams: 80000 } });
+test('poids — semaine 1 : la perte est le point de départ, pas un échec', () => {
+  // Rien à quoi comparer dans le challenge : la semaine 1 est enregistrée mais
+  // ne rapporte rien, et l'UI doit afficher « référence », pas « 0 / 10 ».
+  const s = scoreWeek({ weekNumber: 1, weighIn: { loss_grams: 1500 } });
   assert.equal(s.poids, 0);
   assert.equal(s.detail.poids.isReference, true);
+  assert.equal(s.detail.poids.lossGrams, 1500);
 });
 
-test('poids — sans pesée cette semaine, 0 pt et pas de perte calculée', () => {
-  const s = scoreWeek({
-    weekNumber: 3,
-    weighIn: null,
-    baselineWeighIn: { grams: 80000, week_start: MON },
-  });
+test('poids — sans pesée cette semaine, 0 pt et pas de perte connue', () => {
+  const s = scoreWeek({ weekNumber: 3, weighIn: null });
   assert.equal(s.poids, 0);
   assert.equal(s.detail.poids.lossGrams, null);
+  assert.equal(s.detail.poids.isReference, false);
 });
 
-test('poids — une semaine sautée ne casse pas la chaîne', () => {
-  // Semaine 5 sans pesée ; la semaine 6 compare au dernier point connu
-  // (semaine 4), que l'appelant fournit comme référence.
-  const s = scoreWeek({
-    weekNumber: 6,
-    weighIn: { grams: 79000 },
-    baselineWeighIn: { grams: 80000, week_start: '2026-09-28' },
-  });
+test('poids — chaque semaine est indépendante : une semaine sautée ne coûte rien', () => {
+  // La perte est déclarée semaine par semaine. Ne rien saisir en semaine 5 ne
+  // change donc rien à la semaine 6, qui vaut ce qu'elle déclare.
+  const s = scoreWeek({ weekNumber: 6, weighIn: { loss_grams: 1000 } });
   assert.equal(s.poids, 10);
-  assert.equal(s.detail.poids.baselineWeekStart, '2026-09-28');
 });
 
 test('défis — le cycle recommence en semaine 5', () => {
@@ -235,8 +219,7 @@ test('une semaine parfaite vaut exactement 100', () => {
     weekNumber: 5, // défi S1 : une séance de 80 min le valide
     sessions,
     pushups,
-    weighIn: { grams: 79000 },
-    baselineWeighIn: { grams: 80000, week_start: '2026-09-28' },
+    weighIn: { loss_grams: 1000 },
   });
   assert.deepEqual(
     { act: s.act, pomp: s.pomp, reg: s.reg, poids: s.poids, defi: s.defi },

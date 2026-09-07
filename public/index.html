@@ -87,7 +87,12 @@
       <div class="fbox">
         <h3>Pesée</h3>
         <div class="frow">
-          <input type="number" id="wKg" min="30" max="400" step="0.05" placeholder="kg" aria-label="Poids en kilos">
+          <!-- `text` + `inputmode` plutôt que `number` : un « 0,4 » tapé au
+               clavier français rend un champ `number` invalide, donc `value`
+               vide — et « 0 kg perdu » étant une valeur légitime, la faute
+               passerait pour une saisie valide. La virgule est acceptée ici,
+               le parsing est dans app.js. -->
+          <input type="text" id="wKg" inputmode="decimal" placeholder="kg perdus" aria-label="Kilos perdus depuis la semaine dernière">
           <button class="primary" id="addW">Noter</button>
         </div>
         <p class="hint" id="wHint"></p>
@@ -113,7 +118,7 @@
             <tr><td><b>Activités</b></td><td>1 pt / 10 min, arrondi par séance. Garmin, temps réel, plus de 20 min, pauses exclues.</td><td class="n">45</td></tr>
             <tr><td><b>Pompes</b></td><td>10 pompes = 1 pt, cumul de la semaine, arrondi une seule fois.</td><td class="n">25</td></tr>
             <tr><td><b>Régularité</b></td><td>Journées actives : 2 j = 3, 3 j = 6, 4 j = 9, 5 j = 12, 6 j et + = 15.</td><td class="n">15</td></tr>
-            <tr><td><b>Poids</b></td><td>Perte depuis la pesée précédente : 0,25 = 2, 0,50 = 4, 0,75 = 6, 1 kg et + = 10.</td><td class="n">10</td></tr>
+            <tr><td><b>Poids</b></td><td>Kilos perdus sur la semaine, saisis à la pesée : 0,25 = 2, 0,50 = 4, 0,75 = 6, 1 kg et + = 10. La semaine 1 sert de point de départ.</td><td class="n">10</td></tr>
             <tr><td><b>Défi</b></td><td>Tout ou rien, validé automatiquement d’après le journal.</td><td class="n">5</td></tr>
           </tbody>
         </table></div>

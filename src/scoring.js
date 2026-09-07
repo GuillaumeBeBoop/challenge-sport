@@ -40,16 +40,16 @@ export const WEIGHT_TIERS = [
 ];
 
 /**
- * Référence de la pesée : la pesée antérieure la plus récente.
+ * Ce qui est enregistré est la PERTE de la semaine, déclarée par le joueur, et
+ * non son poids : c'est le chiffre que le barème note, et le seul qu'on saisit.
  *
- * Faille assumée : prendre 1 kg (0 pt, jamais de malus) puis le reperdre
- * rapporte 10 points pour zéro progrès net. Choix conservé pour rester fidèle
- * au barème d'origine. Pour fermer la faille, passer BASELINE à 'best' — la
- * référence devient alors le poids le plus bas jamais atteint, ce qui est
- * identique tant qu'on descend et neutralise l'effet yo-yo. Le calcul de la
- * référence se fait côté appelant (api.js), c'est là qu'il faut basculer.
+ * Deux conséquences assumées. Les semaines sont indépendantes : corriger une
+ * perte corrige cette semaine et elle seule, là où une chaîne de poids absolus
+ * réparait aussi les suivantes. Et rien ne relie les pertes déclarées à une
+ * balance : prendre 1 kg sans le déclarer (0 pt, jamais de malus) puis le
+ * reperdre rapporte 10 points pour zéro progrès net. À deux joueurs qui se font
+ * confiance, c'est le prix d'une saisie qui tient en un nombre.
  */
-export const BASELINE = 'previous';
 
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
@@ -80,15 +80,13 @@ function weightTier(lossGrams) {
  * @param {number}   input.weekNumber        1 pour la première semaine du challenge.
  * @param {Array}    input.sessions          Séances de CETTE semaine : { id, date, discipline, duration_s }.
  * @param {Array}    input.pushups           Pompes de CETTE semaine : { id, date, count }.
- * @param {?object}  input.weighIn           Pesée de la semaine : { grams } ou null.
- * @param {?object}  input.baselineWeighIn   Pesée de référence antérieure : { grams, week_start } ou null.
+ * @param {?object}  input.weighIn           Pesée de la semaine : { loss_grams } ou null.
  */
 export function scoreWeek({
   weekNumber,
   sessions = [],
   pushups = [],
   weighIn = null,
-  baselineWeighIn = null,
 }) {
   const days = buildDays(sessions, pushups);
 
@@ -119,12 +117,13 @@ export function scoreWeek({
     .sort();
   const reg = REG_TIERS[Math.min(activeDays.length, REG_TIERS.length - 1)];
 
-  // --- 4. Poids : paliers, jamais de points négatifs.
-  const isReference = weekNumber <= 1 || !baselineWeighIn;
-  let lossGrams = null;
+  // --- 4. Poids : paliers sur la perte déclarée, jamais de points négatifs.
+  // La semaine 1 n'a pas de semaine antérieure DANS le challenge : sa perte est
+  // enregistrée comme point de départ, elle ne rapporte rien.
+  const isReference = weekNumber <= 1;
+  const lossGrams = weighIn ? weighIn.loss_grams : null;
   let poids = 0;
-  if (weighIn && baselineWeighIn) {
-    lossGrams = baselineWeighIn.grams - weighIn.grams;
+  if (lossGrams !== null && !isReference) {
     const tier = weightTier(lossGrams);
     poids = tier ? tier.points : 0;
   }
@@ -168,12 +167,9 @@ export function scoreWeek({
       poids: {
         points: poids,
         cap: CAPS.poids,
-        // Semaine 1, ou aucune pesée antérieure : la pesée sert de référence et
-        // ne rapporte rien. L'UI doit afficher « référence », pas « 0 / 10 ».
+        // Semaine 1 : la perte sert de point de départ et ne rapporte rien.
+        // L'UI doit afficher « référence », pas « 0 / 10 ».
         isReference,
-        grams: weighIn ? weighIn.grams : null,
-        baselineGrams: baselineWeighIn ? baselineWeighIn.grams : null,
-        baselineWeekStart: baselineWeighIn ? baselineWeighIn.week_start : null,
         lossGrams,
       },
       defi: {
