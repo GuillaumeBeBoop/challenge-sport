@@ -382,11 +382,28 @@ function render() {
   renderSettings(st);
 }
 
+/**
+ * Les champs date suivent le jour courant du serveur (Europe/Paris), tant que
+ * personne ne les a changés à la main. `dataset.auto` retient la valeur qu'on a
+ * posée : si le champ contient autre chose, c'est un choix du joueur et on n'y
+ * touche pas. Sans ça, un onglet laissé ouvert sur un téléphone traverse la
+ * minuit avec la date de la veille, et la séance part dans la mauvaise semaine.
+ */
+function syncDates() {
+  for (const id of ['sDate', 'pDate']) {
+    const el = $(id);
+    if (el.value && el.value !== el.dataset.auto) continue;
+    el.value = state.today;
+    el.dataset.auto = state.today;
+  }
+}
+
 function refresh(next) {
   state = next;
   wantWeek = next.week.number;
   $('gate').hidden = true;
   $('app').hidden = false;
+  syncDates();
   render();
   return next;
 }
@@ -542,10 +559,9 @@ document.addEventListener('visibilitychange', reload);
  * ---------------------------------------------------------------- */
 
 try {
+  // Les dates sont posées par `refresh()`, pas ici : au premier chargement
+  // comme après la saisie du code, et à chaque retour sur l'onglet.
   await load();
-  const today = state.today;
-  $('sDate').value = today;
-  $('pDate').value = today;
 } catch (err) {
   if (err.message !== 'auth') {
     showGate();
