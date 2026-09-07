@@ -287,7 +287,11 @@ export function createApi(db, { accessCode, secure }) {
       httpOnly: true,
       signed: true,
       sameSite: 'lax',
-      secure,
+      // `Secure` se décide par requête, pas une fois pour toutes au démarrage :
+      // un téléphone qui arrive en http:// jetterait silencieusement un cookie
+      // Secure, et se ferait renvoyer à l'écran de code à chaque saisie. Avec
+      // `trust proxy`, `req.secure` suit X-Forwarded-Proto du reverse proxy.
+      secure: secure ?? req.secure,
       maxAge: COOKIE_MAX_AGE,
     });
     res.json(state());

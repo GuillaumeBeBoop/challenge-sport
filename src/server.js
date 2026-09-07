@@ -24,11 +24,13 @@ const db = openDatabase();
 // Le secret de signature du cookie est généré au premier démarrage et persisté
 // en base : ACCESS_CODE reste la seule variable d'environnement obligatoire.
 const cookieSecret = getConfig(db, 'cookie_secret');
-// Derrière un proxy TLS, le cookie doit être `secure`. En HTTP simple (réseau
-// local, test), il faut pouvoir le désactiver, sinon plus personne ne se connecte.
+// Par défaut, le drapeau `secure` du cookie suit le protocole de la requête
+// (voir `/api/auth`) : HTTPS derrière le proxy, HTTP en réseau local. Le déduire
+// de NODE_ENV posait un cookie Secure même sur une connexion en clair, et le
+// navigateur le jetait sans rien dire. COOKIE_SECURE ne sert plus qu'à forcer.
 const secure = process.env.COOKIE_SECURE
   ? process.env.COOKIE_SECURE === 'true'
-  : process.env.NODE_ENV === 'production';
+  : undefined;
 
 const app = express();
 app.set('trust proxy', 1);

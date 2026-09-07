@@ -24,9 +24,14 @@ challenge.exemple.fr {
 }
 ```
 
-En HTTP simple (réseau local, test), décommenter `COOKIE_SECURE=false` dans
-`.env` : sans ça le navigateur refuse le cookie de session et la connexion
-échoue en boucle.
+Le cookie de session porte le drapeau `Secure` quand la requête arrive en
+HTTPS, et pas quand elle arrive en HTTP simple (réseau local, test) : un
+appareil qui ouvre le site en clair se connecte quand même, au lieu de voir son
+cookie jeté sans explication et de revenir en boucle à l'écran de code.
+`COOKIE_SECURE` dans `.env` force le drapeau dans un sens ou dans l'autre.
+
+Le reverse proxy doit passer `X-Forwarded-Proto` (Caddy et Nginx le font par
+défaut) — c'est ce qui distingue les deux cas.
 
 Si le VPS est en arm64, construire l'image sur le VPS (ou via `docker buildx
 --platform`) plutôt que localement en x64.

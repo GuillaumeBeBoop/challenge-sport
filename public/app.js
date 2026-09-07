@@ -38,6 +38,12 @@ async function api(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+const COOKIE_REFUSED =
+  'Code accepté, mais ce navigateur n’a pas gardé le cookie de session. '
+  + 'Si l’adresse commence par http://, rouvrez le site en https://. Sinon, '
+  + 'vérifiez que les cookies ne sont pas bloqués, et ouvrez le lien dans '
+  + 'Safari ou Chrome plutôt que dans le navigateur intégré d’une messagerie.';
+
 function showGate() {
   $('gate').hidden = false;
   $('app').hidden = true;
@@ -397,7 +403,16 @@ $('gateForm').addEventListener('submit', async (ev) => {
   ev.preventDefault();
   $('gateError').hidden = true;
   try {
-    refresh(await api('/auth', { method: 'POST', body: { code: $('code').value } }));
+    const next = await api('/auth', { method: 'POST', body: { code: $('code').value } });
+    // Le code peut être bon et le cookie refusé par le navigateur : `/auth`
+    // renvoie l'état directement, donc l'appli s'ouvrirait quand même pour
+    // rebondir ici à la première saisie, sans rien expliquer. Une lecture
+    // authentifiée de plus, et on sait à qui la faute.
+    await api('/state').catch((err) => {
+      if (err.message === 'auth') throw new Error(COOKIE_REFUSED);
+      throw err;
+    });
+    refresh(next);
     $('code').value = '';
   } catch (err) {
     $('gateError').textContent = err.message;
