@@ -85,9 +85,12 @@ function parseDuration(raw) {
 }
 
 /**
- * Accepte « 0,4 », « 0.4 », « -0,3 », « +0,4 ». Rend un nombre, ou null si
- * illisible — jamais 0 par défaut : une perte nulle est une valeur légitime,
- * la confondre avec une saisie ratée enregistrerait un poids inchangé.
+ * Accepte « 0,4 », « 0.4 », « 2 ». Rend un nombre, ou null si illisible —
+ * jamais 0 par défaut : « 0 » (aucune perte) est une valeur légitime, la
+ * confondre avec une saisie ratée enregistrerait une semaine à tort.
+ *
+ * Le signe est toléré par le parsing et refusé par la saisie : mieux vaut un
+ * message qui dit quoi faire qu'un « illisible » sur un « -0,3 » bien formé.
  */
 function parseKg(raw) {
   const s = String(raw ?? '').trim().replace(',', '.');
@@ -382,12 +385,12 @@ function renderSettings(st) {
   }
   hint.className = 'hint';
   hint.textContent = st.week.number === 1
-    ? 'Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g, « -0,3 » si'
-      + ' vous avez pris. Semaine 1 : la saisie sert de point de départ et ne'
-      + ' rapporte aucun point.'
+    ? 'Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g, « 0 » si'
+      + ' vous n’avez pas perdu. Semaine 1 : la saisie sert de point de départ'
+      + ' et ne rapporte aucun point.'
     : `Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g perdus,`
-      + ` « -0,3 » si vous avez pris. À jeun, même balance. Une seule pesée par`
-      + ` semaine — ${w ? 'celle-ci sera remplacée' : 'aucune saisie pour l’instant'}.`;
+      + ` « 0 » si vous n’avez pas perdu. À jeun, même balance. Une seule pesée`
+      + ` par semaine — ${w ? 'celle-ci sera remplacée' : 'aucune saisie pour l’instant'}.`;
 }
 
 function render() {
@@ -525,11 +528,14 @@ $('addW').addEventListener('click', async () => {
   };
   const value = parseKg($('wKg').value);
   if (value === null) {
-    return bad('Nombre de kilos perdus illisible. Attendu : 0,4 — ou -0,3 si vous avez pris.');
+    return bad('Nombre de kilos perdus illisible. Attendu : 0,4 — ou 0 si vous n’avez pas perdu.');
   }
+  // Le barème ne note que les pertes : une prise vaut 0 point, jamais de malus.
+  // Autant ne pas demander de la chiffrer.
+  if (value < 0) return bad('On ne note que les pertes : mettez 0 si vous avez pris.');
   const loss = Math.round(value * 1000);
-  if (loss < -50000 || loss > 50000) {
-    return bad('Une variation de plus de 50 kg en une semaine : vérifiez le nombre saisi.');
+  if (loss > 50000) {
+    return bad('Plus de 50 kg perdus en une semaine : vérifiez le nombre saisi.');
   }
 
   try {

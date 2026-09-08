@@ -407,9 +407,10 @@ export function createApi(db, { accessCode, secure }) {
       const player = readPlayer(b.player);
       const n = readInt(b.week, { min: 1, max: 520, label: 'La semaine' });
       const weekStart = weekStartOf(n, startDate);
-      // Bornes de saisie : ±50 kg en une semaine est déjà absurde, mais reste
-      // représentable. La contrainte SQL est plus large, cf. la migration.
-      const loss = readInt(b.loss_grams, { min: -50000, max: 50000, label: 'La perte' });
+      // Seules les pertes se notent : une prise vaut 0, on ne la chiffre pas.
+      // La contrainte SQL reste plus large — les bases migrées peuvent contenir
+      // des écarts négatifs, qui restent lisibles. Cf. la migration.
+      const loss = readInt(b.loss_grams, { min: 0, max: 50000, label: 'La perte' });
       const measured = b.measured_on && isDate(b.measured_on) ? b.measured_on : weekStart;
 
       // La clé (joueur, semaine) rend structurellement impossible d'avoir deux
