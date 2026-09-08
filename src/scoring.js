@@ -51,6 +51,15 @@ export const WEIGHT_TIERS = [
  * confiance, c'est le prix d'une saisie qui tient en un nombre.
  */
 
+/**
+ * Diviseurs de malus autorisés. Un malus n'est pas déduit du journal : c'est
+ * une sanction saisie à la main, avec son motif et le nom de qui l'a posée.
+ * Diviser plutôt que soustraire garantit qu'un total ne peut pas devenir
+ * négatif, et fait mal proportionnellement à la semaine — ce qui évite le cas
+ * absurde d'un malus fixe qui punit plus une bonne semaine qu'une mauvaise.
+ */
+export const MALUS_DIVISORS = [2, 3, 4];
+
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
 /** Agrège la semaine par jour. Base commune aux jours actifs et aux défis. */
@@ -81,12 +90,14 @@ function weightTier(lossGrams) {
  * @param {Array}    input.sessions          Séances de CETTE semaine : { id, date, discipline, duration_s }.
  * @param {Array}    input.pushups           Pompes de CETTE semaine : { id, date, count }.
  * @param {?object}  input.weighIn           Pesée de la semaine : { loss_grams } ou null.
+ * @param {?object}  input.penalty           Malus de la semaine : { divisor, reason } ou null.
  */
 export function scoreWeek({
   weekNumber,
   sessions = [],
   pushups = [],
   weighIn = null,
+  penalty = null,
 }) {
   const days = buildDays(sessions, pushups);
 
@@ -133,6 +144,13 @@ export function scoreWeek({
   const outcome = defiDef.test({ sessions, days, activeDays });
   const defi = outcome.done ? CAPS.defi : 0;
 
+  // --- 6. Malus : le total de la semaine divisé. Un diviseur inconnu est
+  // ignoré plutôt que refusé — le barème ne doit jamais échouer sur une ligne
+  // douteuse, la validation des saisies est le travail de l'API.
+  const rawTotal = act + pomp + reg + poids + defi;
+  const divisor = MALUS_DIVISORS.includes(penalty?.divisor) ? penalty.divisor : 1;
+  const total = Math.floor(rawTotal / divisor);
+
   return {
     weekNumber,
     act,
@@ -140,7 +158,10 @@ export function scoreWeek({
     reg,
     poids,
     defi,
-    total: act + pomp + reg + poids + defi,
+    // Les sources gardent leurs points : ce sont des faits. Seul le total est
+    // divisé, et `rawTotal` garde de quoi montrer l'opération à l'écran.
+    rawTotal,
+    total,
     detail: {
       act: {
         points: act,
@@ -179,6 +200,13 @@ export function scoreWeek({
         label: defiDef.label,
         done: outcome.done,
         progress: outcome.progress,
+      },
+      malus: {
+        divisor,
+        reason: penalty?.reason || null,
+        author: penalty?.author || null,
+        // Ce que la sanction a coûté, pour l'afficher sans le recalculer.
+        removed: rawTotal - total,
       },
     },
   };

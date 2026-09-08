@@ -16,7 +16,7 @@ import crypto from 'node:crypto';
 import express from 'express';
 
 import { getConfig, setConfig } from './db.js';
-import { scoreWeek, CAPS } from './scoring.js';
+import { scoreWeek, CAPS, MALUS_DIVISORS } from './scoring.js';
 import { defiForWeek, DEFIS } from './defis.js';
 import {
   addDays, isDate, isMonday, mondayOf, todayParis,
@@ -101,6 +101,12 @@ function loadRows(db) {
            FROM weigh_in ORDER BY week_start`,
       )
       .all(),
+    penalties: db
+      .prepare(
+        `SELECT player_id, week_start, divisor, reason, author, updated_at
+           FROM penalty ORDER BY week_start`,
+      )
+      .all(),
   };
 }
 
@@ -133,12 +139,14 @@ function computeAll(db) {
       // La perte est déclarée semaine par semaine : la ligne de la semaine se
       // suffit à elle-même, il n'y a plus de pesée de référence à retrouver.
       const weighIn = rows.weighIns.find((w) => w.player_id === p && w.week_start === from) || null;
+      const penalty = rows.penalties.find((x) => x.player_id === p && x.week_start === from) || null;
 
       scores[p] = scoreWeek({
         weekNumber: n,
         sessions: rows.sessions.filter((r) => mine(r) && inWeek(r)),
         pushups: rows.pushups.filter((r) => mine(r) && inWeek(r)),
         weighIn,
+        penalty,
       });
       cumulative[p] += scores[p].total;
     }
@@ -183,6 +191,12 @@ function buildState(db, requested) {
         all.rows.weighIns.find((w) => w.player_id === p && w.week_start === week.from) || null,
       ]),
     ),
+    penalties: Object.fromEntries(
+      PLAYERS.map((p) => [
+        p,
+        all.rows.penalties.find((x) => x.player_id === p && x.week_start === week.from) || null,
+      ]),
+    ),
   };
 
   return {
@@ -190,7 +204,8 @@ function buildState(db, requested) {
     config: {
       start_date: all.startDate,
       weeks_total: all.weeksTotal,
-      locked: all.rows.sessions.length + all.rows.pushups.length + all.rows.weighIns.length > 0,
+      locked: all.rows.sessions.length + all.rows.pushups.length
+        + all.rows.weighIns.length + all.rows.penalties.length > 0,
     },
     players: all.players,
     week: {
@@ -422,6 +437,47 @@ export function createApi(db, { accessCode, secure }) {
          DO UPDATE SET loss_grams = @g, measured_on = @m, author = @a, updated_at = @t`,
       ).run({ p: player, w: weekStart, g: loss, m: measured, a: readName(b.author, player), t: now() });
 
+      res.json(state(n));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  api.put('/penalties', (req, res, next) => {
+    try {
+      const { startDate } = readSettings(db);
+      const b = req.body ?? {};
+      const player = readPlayer(b.player);
+      const n = readInt(b.week, { min: 1, max: 520, label: 'La semaine' });
+      const weekStart = weekStartOf(n, startDate);
+      if (!MALUS_DIVISORS.includes(b.divisor)) {
+        throw bad(`Diviseur inconnu. Attendu : ${MALUS_DIVISORS.join(', ')}.`);
+      }
+      // Un malus sans motif serait incontestable et inexplicable une semaine
+      // plus tard. À deux joueurs sans compte, le motif EST la légitimité.
+      const reason = String(b.reason ?? '').trim().slice(0, 200);
+      if (!reason) throw bad('Indiquez le motif du malus.');
+
+      db.prepare(
+        `INSERT INTO penalty (player_id, week_start, divisor, reason, author, created_at, updated_at)
+         VALUES (@p, @w, @d, @r, @a, @t, @t)
+         ON CONFLICT(player_id, week_start)
+         DO UPDATE SET divisor = @d, reason = @r, author = @a, updated_at = @t`,
+      ).run({ p: player, w: weekStart, d: b.divisor, r: reason, a: readName(b.author, player), t: now() });
+
+      res.json(state(n));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  api.delete('/penalties', (req, res, next) => {
+    try {
+      const { startDate } = readSettings(db);
+      const player = readPlayer(req.body?.player);
+      const n = readInt(req.body?.week, { min: 1, max: 520, label: 'La semaine' });
+      db.prepare('DELETE FROM penalty WHERE player_id = ? AND week_start = ?')
+        .run(player, weekStartOf(n, startDate));
       res.json(state(n));
     } catch (err) {
       next(err);

@@ -178,11 +178,15 @@ function makeCard(p) {
     cells[key] = { det, vl, mx: row.lastChild };
   }
 
+  // Le malus n'est pas une source : il ne peut pas être un segment de barre ni
+  // une ligne « x / cap ». Il a sa propre ligne, qui montre l'opération.
+  const malus = el('div', 'malus');
+
   const season = el('div', 'season');
   const seasonVal = el('b');
   season.append(el('span', null, 'Total général'), seasonVal);
 
-  card.append(head, big, mini, rows, season);
+  card.append(head, big, mini, rows, malus, season);
 
   return {
     el: card,
@@ -195,6 +199,16 @@ function makeCard(p) {
       if (document.activeElement !== name) name.value = nameOf(p);
       total.textContent = s.total;
       seasonVal.textContent = st.cumulative[p];
+
+      const m = s.detail.malus;
+      malus.hidden = m.divisor === 1;
+      if (m.divisor > 1) {
+        malus.replaceChildren(
+          el('b', null, `Malus ÷ ${m.divisor}`),
+          el('span', null, ` · ${s.rawTotal} pts ramenés à ${s.total} (−${m.removed})`),
+          el('div', null, `« ${m.reason} » — ${m.author}`),
+        );
+      }
 
       mini.replaceChildren();
       for (const [key, , color] of SOURCES) {
@@ -302,6 +316,19 @@ function renderJournal(st) {
     });
   }
   for (const p of PLAYERS) {
+    const x = st.journal.penalties[p];
+    if (!x) continue;
+    items.push({
+      date: x.week_start, player: p, author: x.author,
+      what: `Malus ÷ ${x.divisor} · ${x.reason}`, points: `−${st.scores[p].detail.malus.removed}`,
+      del: () => {
+        if (!confirm('Retirer ce malus ?')) return null;
+        return api('/penalties', { method: 'DELETE', body: { player: p, week: st.week.number } });
+      },
+    });
+  }
+
+  for (const p of PLAYERS) {
     const w = st.journal.weighIns[p];
     if (!w) continue;
     items.push({
@@ -391,6 +418,20 @@ function renderSettings(st) {
     : `Kilos perdus depuis la semaine dernière : « 0,4 » pour 400 g perdus,`
       + ` « 0 » si vous n’avez pas perdu. À jeun, même balance. Une seule pesée`
       + ` par semaine — ${w ? 'celle-ci sera remplacée' : 'aucune saisie pour l’instant'}.`;
+
+  // Malus de la semaine affichée, pour le joueur sélectionné.
+  const pen = st.journal.penalties[me];
+  const div = $('mDiv');
+  const why = $('mWhy');
+  if (document.activeElement !== div) div.value = String(pen ? pen.divisor : 2);
+  if (document.activeElement !== why) why.value = pen ? pen.reason : '';
+  $('delM').disabled = !pen;
+  $('mHint').className = 'hint';
+  $('mHint').textContent = pen
+    ? `Malus en place : ÷ ${pen.divisor}, soit ${st.scores[me].detail.malus.removed} points perdus`
+      + ' cette semaine. Appliquer à nouveau le remplace.'
+    : 'Sanction saisie à la main : le total de la semaine est divisé. Le motif est'
+      + ' obligatoire, et le nom de qui l’a posée est enregistré.';
 }
 
 function render() {
@@ -546,6 +587,47 @@ $('addW').addEventListener('click', async () => {
     refresh(next);
     hint.className = 'hint ok';
     hint.textContent = `Semaine ${next.week.number} : ${fmtLoss(loss)} depuis la semaine dernière.`;
+  } catch (err) {
+    hint.className = 'hint bad';
+    hint.textContent = err.message;
+  }
+});
+
+$('addM').addEventListener('click', async () => {
+  const hint = $('mHint');
+  const reason = $('mWhy').value.trim();
+  if (!reason) {
+    hint.className = 'hint bad';
+    hint.textContent = 'Indiquez le motif du malus : sans motif, il sera incompréhensible dans un mois.';
+    return;
+  }
+  try {
+    const next = await api('/penalties', {
+      method: 'PUT',
+      body: {
+        player: me, author: nameOf(me), week: state.week.number,
+        divisor: Number($('mDiv').value), reason,
+      },
+    });
+    refresh(next);
+    hint.className = 'hint ok';
+    hint.textContent = `Malus appliqué : semaine ${next.week.number} ramenée à ${next.scores[me].total} points.`;
+  } catch (err) {
+    hint.className = 'hint bad';
+    hint.textContent = err.message;
+  }
+});
+
+$('delM').addEventListener('click', async () => {
+  const hint = $('mHint');
+  try {
+    const next = await api('/penalties', {
+      method: 'DELETE',
+      body: { player: me, week: state.week.number },
+    });
+    refresh(next);
+    hint.className = 'hint ok';
+    hint.textContent = `Malus retiré : semaine ${next.week.number} à ${next.scores[me].total} points.`;
   } catch (err) {
     hint.className = 'hint bad';
     hint.textContent = err.message;

@@ -100,6 +100,23 @@ const MIGRATIONS = [
   DROP TABLE weigh_in;
   ALTER TABLE weigh_in_v2 RENAME TO weigh_in;
   `,
+  // Malus : une sanction saisie à la main, au plus une par joueur et par
+  // semaine — la clé primaire le garantit, comme pour les pesées. Le diviseur
+  // n'est pas contraint à une liste ici : le barème ignore ce qu'il ne connaît
+  // pas (cf. MALUS_DIVISORS), et une liste en dur dans un CHECK obligerait une
+  // migration pour ajouter un ÷5.
+  `
+  CREATE TABLE penalty (
+    player_id  TEXT NOT NULL REFERENCES player(id),
+    week_start TEXT NOT NULL CHECK (week_start GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    divisor    INTEGER NOT NULL CHECK (divisor > 1),
+    reason     TEXT NOT NULL,
+    author     TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (player_id, week_start)
+  );
+  `,
 ];
 
 function migrate(db) {

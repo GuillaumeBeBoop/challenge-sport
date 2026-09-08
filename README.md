@@ -55,6 +55,12 @@ Les points ne sont jamais stockés. Ils sont recalculés à chaque lecture depui
 les lignes brutes : corriger une ligne suffit, il n'y a jamais de total à
 rafraîchir.
 
+Le **malus** est la seule règle qui ne se déduit pas du journal : c'est une
+sanction saisie à la main, qui divise le total de la semaine par 2, 3 ou 4. Le
+motif est obligatoire — sans lui, un malus est incompréhensible un mois plus
+tard. Diviser plutôt que soustraire garantit qu'un total ne peut pas devenir
+négatif, et fait mal proportionnellement à la semaine.
+
 La pesée enregistre les **kilos perdus dans la semaine**, pas un poids : c'est
 le seul chiffre que le barème note, et c'est celui qu'on saisit. Les semaines
 sont donc indépendantes — corriger une perte corrige cette semaine et elle

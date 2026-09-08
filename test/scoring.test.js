@@ -212,6 +212,51 @@ test('les cinq sources se cumulent — le défi compte aussi dans act et pomp', 
   assert.equal(s.defi, 5);
 });
 
+test('malus — le diviseur s’applique au total de la semaine, arrondi vers le bas', () => {
+  // 3 séances de 30 min = 9 pts, 3 journées actives = 6 pts : 15 pts brut.
+  const over = { sessions: [sess(d(0), 30), sess(d(1), 30), sess(d(2), 30)] };
+  assert.equal(score(over).total, 15);
+
+  const s = score({ ...over, penalty: { divisor: 2, reason: 'séance séchée' } });
+  assert.equal(s.rawTotal, 15);
+  assert.equal(s.total, 7); // 15 / 2 = 7,5 -> 7 : l'arrondi ne profite jamais au fautif
+  assert.equal(s.detail.malus.divisor, 2);
+  assert.equal(s.detail.malus.removed, 8);
+  assert.equal(s.detail.malus.reason, 'séance séchée');
+});
+
+test('malus — les sources gardent leurs points : c’est le total qui est divisé', () => {
+  const s = score({
+    sessions: [sess(d(0), 30), sess(d(1), 30), sess(d(2), 30)],
+    penalty: { divisor: 3 },
+  });
+  assert.equal(s.act, 9);
+  assert.equal(s.reg, 6);
+  assert.equal(s.total, 5); // 15 / 3
+});
+
+test('malus — sans malus, rien ne change et le détail le dit', () => {
+  const s = score({ sessions: [sess(d(0), 30)] });
+  assert.equal(s.total, s.rawTotal);
+  assert.equal(s.detail.malus.divisor, 1);
+  assert.equal(s.detail.malus.removed, 0);
+});
+
+test('malus — un diviseur ne peut pas rendre un total négatif', () => {
+  const s = score({ penalty: { divisor: 4 } });
+  assert.equal(s.rawTotal, 0);
+  assert.equal(s.total, 0);
+  assert.equal(s.detail.malus.removed, 0);
+});
+
+test('malus — un diviseur de 1 ou absurde est ignoré, jamais une erreur', () => {
+  const over = { sessions: [sess(d(0), 30), sess(d(1), 30), sess(d(2), 30)] };
+  for (const divisor of [1, 0, -2, null, undefined, 'deux']) {
+    const s = score({ ...over, penalty: { divisor } });
+    assert.equal(s.total, 15, `diviseur ${divisor}`);
+  }
+});
+
 test('une semaine parfaite vaut exactement 100', () => {
   const sessions = [0, 1, 2, 3, 4, 5].map((i) => sess(d(i), 80));
   const pushups = [0, 1, 2, 3, 4].map((i) => push(d(i), 50));

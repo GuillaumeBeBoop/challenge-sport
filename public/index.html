@@ -98,6 +98,23 @@
         <p class="hint" id="wHint"></p>
       </div>
 
+      <div class="fbox">
+        <h3>Malus</h3>
+        <div class="frow">
+          <select id="mDiv" aria-label="Diviseur du malus">
+            <option value="2">÷ 2</option>
+            <option value="3">÷ 3</option>
+            <option value="4">÷ 4</option>
+          </select>
+          <input type="text" id="mWhy" maxlength="200" placeholder="motif" aria-label="Motif du malus">
+        </div>
+        <div class="frow">
+          <button class="primary" id="addM">Appliquer</button>
+          <button id="delM">Retirer</button>
+        </div>
+        <p class="hint" id="mHint"></p>
+      </div>
+
     </div>
   </section>
 
@@ -126,6 +143,10 @@
         <b>Semaine</b> = lundi 00 h → dimanche 23 h 59. Chaque source est plafonnée séparément :
         100 points maximum par semaine. Les plafonds limitent les points, jamais les faits — une séance
         au-delà de 45 points rend quand même sa journée active.</p>
+        <p><b>Malus</b> : une sanction saisie à la main divise le total de la semaine par 2, 3 ou 4.
+        Le motif est obligatoire et le nom de qui l’a posée est enregistré. Les sources gardent
+        leurs points — ce sont des faits ; c’est le total qui est divisé, et il ne peut donc
+        jamais devenir négatif.</p>
       </div>
     </details>
 

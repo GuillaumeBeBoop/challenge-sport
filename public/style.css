@@ -107,6 +107,12 @@ input[type=date]{font-size:.79rem}
 .vl{font-weight:600;min-width:20px;text-align:right}
 .vl.ref{font-weight:400;color:var(--faint);font-size:.68rem;min-width:0}
 .mx{color:var(--faint);font-size:.68rem;min-width:32px;text-align:right}
+/* Le malus n'est pas une source de points : sa ligne se lit à part, et le
+   rouge est celui déjà utilisé pour les erreurs (--s4). */
+.malus{margin-top:10px;padding:6px 8px;border-radius:3px;border:1px solid var(--s4);
+  font-family:var(--mono);font-size:.7rem;line-height:1.35;color:var(--s4)}
+.malus b{font-weight:600}
+
 .season{margin-top:11px;padding-top:10px;border-top:1px solid var(--rule);display:flex;
   justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:.71rem;
   letter-spacing:.06em;text-transform:uppercase;color:var(--faint)}
