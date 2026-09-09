@@ -117,26 +117,80 @@ const MIGRATIONS = [
     PRIMARY KEY (player_id, week_start)
   );
   `,
+  // Un nombre libre de joueurs. La contrainte `id IN ('a','b')` de la migration
+  // 1 doit donc sauter, et SQLite ne sait pas retirer un CHECK autrement qu'en
+  // reconstruisant la table — que quatre tables référencent en clé étrangère.
+  // C'est migrate() qui coupe `foreign_keys` le temps des migrations, et qui
+  // repasse `foreign_key_check` derrière : le faire ici serait sans effet,
+  // chaque étape tournant déjà dans un BEGIN.
+  //
+  // `joined_week` et `archived_week` sont des lundis, ou NULL : « depuis le
+  // début » et « toujours en jeu ». Des dates plutôt que des numéros de
+  // semaine, qui bougeraient si la date de départ du challenge changeait.
+  `
+  CREATE TABLE player_v2 (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    joined_week   TEXT CHECK (joined_week IS NULL OR joined_week GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    archived_week TEXT CHECK (archived_week IS NULL OR archived_week GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    created_at    TEXT NOT NULL
+  );
+
+  INSERT INTO player_v2 (id, name, joined_week, archived_week, created_at)
+  SELECT id, name, NULL, NULL, '' FROM player;
+
+  DROP TABLE player;
+  ALTER TABLE player_v2 RENAME TO player;
+  `,
 ];
 
 function migrate(db) {
   const current = db.pragma('user_version', { simple: true });
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    const step = MIGRATIONS[v];
-    db.transaction(() => {
-      db.exec(step);
-      db.pragma(`user_version = ${v + 1}`);
-    })();
+  if (current >= MIGRATIONS.length) return;
+
+  // SQLite ne sait pas retirer une contrainte : il faut reconstruire la table,
+  // donc la déposer et la recréer sous son nom — et entre les deux, les lignes
+  // filles pointent dans le vide. `foreign_keys` ne se change qu'EN DEHORS
+  // d'une transaction (dedans le PRAGMA est ignoré en silence, et le COMMIT
+  // échoue), c'est pourquoi il est coupé ici et pas dans le SQL d'une étape.
+  //
+  // Ce n'est pas un blanc-seing : `foreign_key_check` relit toute la base
+  // ensuite, et une migration qui aurait laissé une ligne orpheline échoue
+  // bruyamment plutôt que de démarrer sur une base incohérente.
+  db.pragma('foreign_keys = OFF');
+  try {
+    for (let v = current; v < MIGRATIONS.length; v++) {
+      const step = MIGRATIONS[v];
+      db.transaction(() => {
+        db.exec(step);
+        db.pragma(`user_version = ${v + 1}`);
+      })();
+    }
+    const orphans = db.pragma('foreign_key_check');
+    if (orphans.length > 0) {
+      throw new Error(
+        `Migration interrompue : ${orphans.length} ligne(s) orpheline(s) `
+        + `(${orphans.slice(0, 3).map((o) => `${o.table}#${o.rowid}`).join(', ')}). `
+        + 'La base n\'a pas été modifiée au-delà de la dernière étape réussie.',
+      );
+    }
+  } finally {
+    db.pragma('foreign_keys = ON');
   }
 }
 
 function seed(db) {
   const players = db.prepare('SELECT COUNT(*) AS n FROM player').get().n;
   if (players === 0) {
-    const ins = db.prepare('INSERT INTO player (id, name) VALUES (?, ?)');
+    // Deux joueurs au départ, mais rien n'y oblige : on en ajoute et on en
+    // archive depuis les réglages. `joined_week` à NULL = depuis le début.
+    const ins = db.prepare(
+      'INSERT INTO player (id, name, joined_week, archived_week, created_at) VALUES (?, ?, NULL, NULL, ?)',
+    );
+    const t = new Date().toISOString();
     db.transaction(() => {
-      ins.run('a', 'Joueur 1');
-      ins.run('b', 'Joueur 2');
+      ins.run('a', 'Joueur 1', t);
+      ins.run('b', 'Joueur 2', t);
     })();
   }
   // Par défaut, le challenge démarre le lundi de la semaine en cours.

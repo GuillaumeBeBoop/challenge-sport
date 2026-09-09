@@ -5,7 +5,8 @@
  */
 
 const $ = (id) => document.getElementById(id);
-const PLAYERS = ['a', 'b'];
+/** Couleurs de joueur disponibles dans la feuille de style (--pl1..--pl8). */
+const PLAYER_COLORS = 8;
 const DISCIPLINES = { course: 'Course', marche: 'Marche', velo: 'Vélo' };
 const SOURCES = [
   ['act', 'Activités', 'var(--s1)'],
@@ -17,7 +18,9 @@ const SOURCES = [
 
 let state = null;
 let wantWeek = null;
-let me = localStorage.getItem('challenge.me') === 'b' ? 'b' : 'a';
+/** Qui saisit. Validé contre le roster à chaque rafraîchissement : un joueur
+ *  archivé, ou supprimé d'un autre appareil, ne doit pas rester sélectionné. */
+let me = localStorage.getItem('challenge.me') || null;
 
 /* ---------------------------------------------------------------- *
  * Réseau
@@ -149,7 +152,17 @@ const el = (tag, cls, txt) => {
   return n;
 };
 
+/** « Marie », « Marie et Paul », « Marie, Paul et Luc ». */
+const listFr = (xs) => (xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} et ${xs.at(-1)}`);
+
 const nameOf = (p) => state?.players.find((x) => x.id === p)?.name || p;
+/** Rang du joueur dans le roster, donc sa couleur — stable tant qu'il est là. */
+const colorOf = (p) => {
+  const i = state?.players.findIndex((x) => x.id === p) ?? -1;
+  return `var(--pl${(Math.max(i, 0) % PLAYER_COLORS) + 1})`;
+};
+/** Les joueurs qui peuvent saisir aujourd'hui. */
+const activePlayers = () => (state?.players ?? []).filter((p) => !p.archived);
 
 /* ---------------------------------------------------------------- *
  * Cartes des joueurs — construites une fois, mises à jour ensuite,
@@ -157,7 +170,7 @@ const nameOf = (p) => state?.players.find((x) => x.id === p)?.name || p;
  * ---------------------------------------------------------------- */
 
 function makeCard(p) {
-  const card = el('div', `pcard p${p}`);
+  const card = el('div', 'pcard');
   const head = el('div', 'phead');
   const name = document.createElement('input');
   name.className = 'pname';
@@ -165,7 +178,7 @@ function makeCard(p) {
   name.maxLength = 40;
   name.addEventListener('change', async () => {
     try {
-      await refresh(await api('/config', { method: 'PUT', body: { [`name_${p}`]: name.value } }));
+      await refresh(await api(`/players/${p}`, { method: 'PUT', body: { name: name.value } }));
     } catch (err) { fail(err); }
   });
   const crown = el('span', 'crown', 'en tête');
@@ -195,7 +208,10 @@ function makeCard(p) {
 
   const season = el('div', 'season');
   const seasonVal = el('b');
-  season.append(el('span', null, 'Total général'), seasonVal);
+  const seasonNote = el('small');
+  const seasonLabel = el('span', null, 'Total général ');
+  seasonLabel.append(seasonNote);
+  season.append(seasonLabel, seasonVal);
 
   card.append(head, big, mini, rows, malus, season);
 
@@ -203,13 +219,23 @@ function makeCard(p) {
     el: card,
     update(st) {
       const s = st.scores[p];
-      const other = st.scores[p === 'a' ? 'b' : 'a'];
-      const lead = s.total > other.total;
+      // En tête = strictement meilleur que tous les autres. À égalité, personne
+      // ne porte la couronne : deux « en tête » se liraient comme un bug.
+      const others = Object.entries(st.scores).filter(([id]) => id !== p).map(([, x]) => x.total);
+      const lead = s.total > 0 && others.every((t) => s.total > t);
+      card.style.borderTopColor = colorOf(p);
       card.classList.toggle('lead', lead);
       crown.hidden = !lead;
       if (document.activeElement !== name) name.value = nameOf(p);
       total.textContent = s.total;
       seasonVal.textContent = st.cumulative[p];
+
+      // Un joueur arrivé en cours de route n'a pas joué autant de semaines que
+      // les autres : le dire, sinon son cumul se lit comme un mauvais score.
+      const meta = st.players.find((x) => x.id === p);
+      seasonNote.textContent = meta && meta.joinedWeek > 1
+        ? `depuis la semaine ${meta.joinedWeek}`
+        : '';
 
       const m = s.detail.malus;
       malus.hidden = m.divisor === 1;
@@ -251,7 +277,24 @@ function makeCard(p) {
   };
 }
 
-const cards = { a: makeCard('a'), b: makeCard('b') };
+/**
+ * Une carte par joueur de la semaine affichée, conservée d'un rendu à l'autre :
+ * les recréer volerait le focus au champ du nom pendant qu'on le tape.
+ */
+const cards = new Map();
+
+function renderBoard(st) {
+  const ids = Object.keys(st.scores);
+  for (const id of [...cards.keys()]) if (!ids.includes(id)) cards.delete(id);
+  for (const id of ids) if (!cards.has(id)) cards.set(id, makeCard(id));
+
+  const wanted = ids.map((id) => cards.get(id).el);
+  const board = $('board');
+  const same = wanted.length === board.children.length
+    && wanted.every((n, i) => board.children[i] === n);
+  if (!same) board.replaceChildren(...wanted);
+  for (const id of ids) cards.get(id).update(st);
+}
 
 /* ---------------------------------------------------------------- *
  * Rendu
@@ -264,43 +307,42 @@ function renderHead(st) {
   $('prev').disabled = st.week.number <= 1;
   $('next').disabled = st.week.number >= st.maxWeek;
 
-  const validated = PLAYERS.filter((p) => st.scores[p].detail.defi.done).map(nameOf);
+  const validated = Object.keys(st.scores).filter((p) => st.scores[p].detail.defi.done).map(nameOf);
   const banner = $('defiBanner');
   banner.classList.toggle('done', validated.length > 0);
   banner.replaceChildren(
     el('b', null, 'Défi de la semaine'),
     document.createTextNode(
-      ` — ${st.defi.label}${validated.length ? ` · validé par ${validated.join(' et ')}` : ' · pas encore validé'}`,
+      ` — ${st.defi.label}${validated.length ? ` · validé par ${listFr(validated)}` : ' · pas encore validé'}`,
     ),
   );
 
   $('final').hidden = !st.finished;
   if (st.finished) {
-    const [a, b] = [st.cumulative.a, st.cumulative.b];
-    $('finalText').textContent = a === b
-      ? `Challenge terminé après ${st.config.weeks_total} semaines : égalité, ${a} points partout.`
-      : `Challenge terminé après ${st.config.weeks_total} semaines : ${nameOf(a > b ? 'a' : 'b')} l’emporte, ${Math.max(a, b)} contre ${Math.min(a, b)}.`;
+    const ranking = Object.entries(st.cumulative).sort((x, y) => y[1] - x[1]);
+    const best = ranking.length ? ranking[0][1] : 0;
+    const winners = ranking.filter(([, v]) => v === best).map(([id]) => nameOf(id));
+    const head = `Challenge terminé après ${st.config.weeks_total} semaines : `;
+    $('finalText').textContent = winners.length > 1
+      ? `${head}égalité entre ${listFr(winners)}, ${best} points partout.`
+      : `${head}${winners[0]} l’emporte avec ${best} points, devant `
+        + `${listFr(ranking.slice(1).map(([id, v]) => `${nameOf(id)} (${v})`))}.`;
   }
 }
 
 function renderWho() {
   const seg = $('whoSeg');
-  if (seg.children.length !== 2) {
-    seg.replaceChildren(...PLAYERS.map((p) => {
-      const b = el('button');
-      b.type = 'button';
-      b.addEventListener('click', () => {
-        me = p;
-        localStorage.setItem('challenge.me', p);
-        render();
-      });
-      return b;
-    }));
-  }
-  PLAYERS.forEach((p, i) => {
-    seg.children[i].textContent = nameOf(p);
-    seg.children[i].setAttribute('aria-pressed', me === p ? 'true' : 'false');
-  });
+  seg.replaceChildren(...activePlayers().map((p) => {
+    const b = el('button', null, p.name);
+    b.type = 'button';
+    b.setAttribute('aria-pressed', me === p.id ? 'true' : 'false');
+    b.addEventListener('click', () => {
+      me = p.id;
+      localStorage.setItem('challenge.me', me);
+      render();
+    });
+    return b;
+  }));
 }
 
 function renderJournal(st) {
@@ -326,7 +368,7 @@ function renderJournal(st) {
       del: () => api(`/pushups/${p.id}`, { method: 'DELETE' }),
     });
   }
-  for (const p of PLAYERS) {
+  for (const p of Object.keys(st.journal.penalties)) {
     const x = st.journal.penalties[p];
     if (!x) continue;
     items.push({
@@ -339,7 +381,7 @@ function renderJournal(st) {
     });
   }
 
-  for (const p of PLAYERS) {
+  for (const p of Object.keys(st.journal.weighIns)) {
     const w = st.journal.weighIns[p];
     if (!w) continue;
     items.push({
@@ -368,7 +410,10 @@ function renderJournal(st) {
       frag.append(el('div', 'dayhead', fmtDayLong(day)));
     }
     const row = el('div', 'ent');
-    row.append(el('span', `tag ${it.player}`, nameOf(it.player).slice(0, 12)));
+    const tag = el('span', 'tag', nameOf(it.player).slice(0, 12));
+    tag.style.background = colorOf(it.player);
+    tag.style.color = 'var(--on-dark)';
+    row.append(tag);
 
     const what = el('span', 'what');
     what.append(document.createTextNode(it.what));
@@ -396,6 +441,40 @@ function renderJournal(st) {
   host.replaceChildren(frag);
 }
 
+/** La liste des joueurs dans les réglages : archiver, réactiver, ajouter. */
+function renderPlayers(st) {
+  const host = $('plist');
+  host.replaceChildren(...st.players.map((p) => {
+    const row = el('div', `prow${p.archived ? ' off' : ''}`);
+
+    const dot = el('span', 'dot');
+    dot.style.background = colorOf(p.id);
+
+    const who = el('span', 'who2', p.name);
+    const bits = [];
+    if (p.joinedWeek > 1) bits.push(`arrivé en semaine ${p.joinedWeek}`);
+    if (p.archived) bits.push(`archivé en semaine ${p.archivedWeek}`);
+    bits.push(`${p.weeksPlayed} semaine${p.weeksPlayed > 1 ? 's' : ''} jouée${p.weeksPlayed > 1 ? 's' : ''}`);
+    who.append(el('small', null, bits.join(' · ')));
+
+    const act = el('button', null, p.archived ? 'Réactiver' : 'Archiver');
+    act.type = 'button';
+    act.addEventListener('click', async () => {
+      if (!p.archived && !confirm(
+        `Archiver ${p.name} ? Ses lignes et ses points passés sont conservés,`
+        + ' il disparaît seulement des cartes à partir de cette semaine.',
+      )) return;
+      try {
+        refresh(await api(`/players/${p.id}`, { method: 'PUT', body: { archived: !p.archived } }));
+        note(p.archived ? `${p.name} est de retour.` : `${p.name} est archivé.`);
+      } catch (err) { fail(err); }
+    });
+
+    row.append(dot, who, act);
+    return row;
+  }));
+}
+
 function renderSettings(st) {
   $('startDate').value = st.config.start_date;
   $('weeksTotal').value = st.config.weeks_total;
@@ -411,6 +490,22 @@ function renderSettings(st) {
       tr.firstChild.append(el('b', null, `S${i + 1}`));
       return tr;
     }));
+  }
+
+  renderPlayers(st);
+
+  // Un joueur peut consulter une semaine qu'il n'a pas jouée : il n'y a alors
+  // ni pesée ni malus à afficher pour lui, et surtout pas de score à lire.
+  const mine = me ? st.scores[me] : null;
+  $('addW').disabled = !mine;
+  $('addM').disabled = !mine;
+  if (!mine) {
+    $('wHint').className = 'hint';
+    $('wHint').textContent = 'Semaine antérieure à votre arrivée : rien à saisir ici.';
+    $('mHint').className = 'hint';
+    $('mHint').textContent = '';
+    $('delM').disabled = true;
+    return;
   }
 
   // On ne saisit jamais un poids, seulement la perte de la semaine : c'est le
@@ -448,12 +543,9 @@ function renderSettings(st) {
 function render() {
   if (!state) return;
   const st = state;
-  const board = $('board');
-  if (board.children.length !== 2) board.replaceChildren(cards.a.el, cards.b.el);
   renderHead(st);
   renderWho();
-  cards.a.update(st);
-  cards.b.update(st);
+  renderBoard(st);
   renderJournal(st);
   renderSettings(st);
 }
@@ -474,8 +566,21 @@ function syncDates() {
   }
 }
 
+/**
+ * Le joueur sélectionné doit exister et pouvoir saisir. Il peut avoir été
+ * archivé — ou renommé, ou ajouté — depuis un autre appareil entre deux
+ * rafraîchissements : on retombe alors sur le premier joueur actif.
+ */
+function pickMe(st) {
+  const active = st.players.filter((p) => !p.archived);
+  if (active.some((p) => p.id === me)) return;
+  me = active[0]?.id ?? st.players[0]?.id ?? null;
+  if (me) localStorage.setItem('challenge.me', me);
+}
+
 function refresh(next) {
   state = next;
+  pickMe(next);
   wantWeek = next.week.number;
   $('gate').hidden = true;
   $('app').hidden = false;
@@ -663,6 +768,17 @@ $('delM').addEventListener('click', async () => {
     hint.className = 'hint bad';
     hint.textContent = err.message;
   }
+});
+
+$('addPlayer').addEventListener('click', async () => {
+  const input = $('pNew');
+  const name = input.value.trim();
+  if (!name) return fail(new Error('Indiquez le nom du joueur.'));
+  try {
+    refresh(await api('/players', { method: 'POST', body: { name } }));
+    input.value = '';
+    note(`${name} rejoint le challenge à la semaine ${state.week.number}.`);
+  } catch (err) { fail(err); }
 });
 
 $('saveStart').addEventListener('click', async () => {

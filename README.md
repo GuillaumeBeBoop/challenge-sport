@@ -55,6 +55,13 @@ Les points ne sont jamais stockés. Ils sont recalculés à chaque lecture depui
 les lignes brutes : corriger une ligne suffit, il n'y a jamais de total à
 rafraîchir.
 
+Le nombre de **joueurs** est libre : deux au départ, on en ajoute et on en
+archive depuis les réglages. Rien n'est jamais supprimé — archiver masque un
+joueur à partir de la semaine en cours, garde ses lignes et ses points passés,
+et se défait d'un clic. Un joueur arrivé en cours de route n'est affiché et
+compté qu'à partir de sa semaine d'arrivée, pour que son total général ne se
+lise pas comme un mauvais score.
+
 Le **malus** est la seule règle qui ne se déduit pas du journal : c'est une
 sanction saisie à la main, qui divise le total de la semaine par 2, 3 ou 4. Le
 motif est obligatoire — sans lui, un malus est incompréhensible un mois plus
@@ -87,8 +94,9 @@ JSON — plus pratique à relire qu'un instantané binaire.
 
 ## Réglages
 
-Dans l'application, section « Réglages » : les noms des joueurs, le premier
-lundi du challenge et le nombre de semaines prévues.
+Dans l'application, section « Réglages » : la liste des joueurs (ajout,
+archivage, réactivation), le premier lundi du challenge et le nombre de
+semaines prévues. Les noms se changent directement sur les cartes.
 
 La date de départ se verrouille dès qu'une ligne existe : la déplacer
 renumérote les semaines et décale la phase du cycle de défis, ce qui ferait

@@ -171,12 +171,22 @@
         les autres sports, sauf accord des deux joueurs avant le début de la semaine.</p>
         <p>Pas de compte, pas de mot de passe individuel : chacun saisit ses lignes, on se fait
         confiance. Chaque ligne garde le nom de qui l’a saisie.</p>
+        <p><b>Joueurs</b> : on en ajoute et on en archive quand on veut, dans les réglages. Un
+        arrivant ne compte qu’à partir de sa semaine d’arrivée ; un joueur archivé disparaît des
+        cartes à partir de la semaine en cours, mais ses lignes et ses points passés sont
+        conservés — et il se réactive d’un clic.</p>
       </div>
     </details>
 
     <details>
       <summary>Réglages</summary>
       <div class="dbody">
+        <div class="plist" id="plist"></div>
+        <div class="setrow">
+          <span class="lbl" style="margin:0">Nouveau joueur</span>
+          <input type="text" id="pNew" maxlength="40" placeholder="nom" aria-label="Nom du nouveau joueur">
+          <button id="addPlayer">Ajouter</button>
+        </div>
         <div class="setrow">
           <span class="lbl" style="margin:0">Premier lundi</span>
           <input type="date" id="startDate">

@@ -23,8 +23,9 @@ import {
   weekNumber, weekRange, weekStartOf,
 } from './dates.js';
 
-const PLAYERS = ['a', 'b'];
 const DISCIPLINES = ['course', 'marche', 'velo'];
+/** Identifiants lisibles tant qu'il en reste ; au-delà, un suffixe numéroté. */
+const ID_LETTERS = 'abcdefghijklmnopqrstuvwxyz';
 const COOKIE = 'challenge_auth';
 const COOKIE_MAX_AGE = 180 * 24 * 3600 * 1000;
 
@@ -40,9 +41,25 @@ const bad = (msg) => new HttpError(400, msg);
  * Validation
  * ------------------------------------------------------------------ */
 
-function readPlayer(v) {
-  if (!PLAYERS.includes(v)) throw bad('Joueur inconnu.');
-  return v;
+/**
+ * Un joueur existant. Les lignes d'un joueur archivé restent modifiables et
+ * supprimables — l'archivage masque, il ne fige pas —, mais on ne saisit plus
+ * rien de neuf pour lui : `write` le refuse.
+ */
+function readPlayer(db, v, { write = false } = {}) {
+  const row = db.prepare('SELECT id, name, archived_week FROM player WHERE id = ?').get(v);
+  if (!row) throw bad('Joueur inconnu.');
+  if (write && row.archived_week) throw bad(`${row.name} est archivé : réactivez-le pour saisir.`);
+  return row.id;
+}
+
+/** Le prochain identifiant libre. Les deux premiers restent « a » et « b ». */
+function nextPlayerId(db) {
+  const used = new Set(db.prepare('SELECT id FROM player').all().map((r) => r.id));
+  for (const c of ID_LETTERS) if (!used.has(c)) return c;
+  let n = used.size + 1;
+  while (used.has(`p${n}`)) n += 1;
+  return `p${n}`;
 }
 
 function readInt(v, { min, max, label }) {
@@ -77,7 +94,12 @@ function readSettings(db) {
   return {
     startDate: getConfig(db, 'start_date'),
     weeksTotal: Number(getConfig(db, 'weeks_total')) || 4,
-    players: db.prepare('SELECT id, name FROM player ORDER BY id').all(),
+    players: db
+      .prepare(
+        `SELECT id, name, joined_week, archived_week
+           FROM player ORDER BY (joined_week IS NOT NULL), joined_week, created_at, id`,
+      )
+      .all(),
   };
 }
 
@@ -127,34 +149,45 @@ function computeAll(db) {
   if (!Number.isFinite(maxWeek) || maxWeek < 1) maxWeek = 1;
 
   const weeks = [];
-  const cumulative = { a: 0, b: 0 };
+  const cumulative = Object.fromEntries(players.map((p) => [p.id, 0]));
+  const weeksPlayed = Object.fromEntries(players.map((p) => [p.id, 0]));
+
+  /**
+   * Un joueur compte dans une semaine s'il était en jeu, OU s'il y a saisi
+   * quelque chose. Le second cas n'est pas théorique : une ligne antidatée
+   * avant l'arrivée, ou saisie juste avant l'archivage, ne doit jamais
+   * disparaître de l'écran sans explication.
+   */
+  const enrolled = (p, from) =>
+    (!p.joined_week || p.joined_week <= from) && (!p.archived_week || from < p.archived_week);
 
   for (let n = 1; n <= maxWeek; n++) {
     const { from, to } = weekRange(n, startDate);
     const inWeek = (r) => r.date >= from && r.date <= to;
     const scores = {};
 
-    for (const p of PLAYERS) {
+    for (const player of players) {
+      const p = player.id;
       const mine = (r) => r.player_id === p;
       // La perte est déclarée semaine par semaine : la ligne de la semaine se
       // suffit à elle-même, il n'y a plus de pesée de référence à retrouver.
       const weighIn = rows.weighIns.find((w) => w.player_id === p && w.week_start === from) || null;
       const penalty = rows.penalties.find((x) => x.player_id === p && x.week_start === from) || null;
 
-      scores[p] = scoreWeek({
-        weekNumber: n,
-        sessions: rows.sessions.filter((r) => mine(r) && inWeek(r)),
-        pushups: rows.pushups.filter((r) => mine(r) && inWeek(r)),
-        weighIn,
-        penalty,
-      });
+      const sessions = rows.sessions.filter((r) => mine(r) && inWeek(r));
+      const pushups = rows.pushups.filter((r) => mine(r) && inWeek(r));
+      const touched = sessions.length + pushups.length > 0 || weighIn || penalty;
+      if (!enrolled(player, from) && !touched) continue;
+
+      scores[p] = scoreWeek({ weekNumber: n, sessions, pushups, weighIn, penalty });
       cumulative[p] += scores[p].total;
+      weeksPlayed[p] += 1;
     }
 
     weeks.push({ number: n, from, to, defi: defiForWeek(n), scores });
   }
 
-  return { startDate, weeksTotal, players, rows, today, maxWeek, weeks, cumulative };
+  return { startDate, weeksTotal, players, rows, today, maxWeek, weeks, cumulative, weeksPlayed };
 }
 
 /** Le payload complet d'un écran, en un aller-retour. */
@@ -169,8 +202,8 @@ function buildState(db, requested) {
   // Points de chaque séance, tels que le barème les a calculés — le front ne
   // refait jamais ce calcul.
   const sessionPoints = new Map();
-  for (const p of PLAYERS) {
-    for (const c of week.scores[p].detail.act.sessions) sessionPoints.set(c.id, c);
+  for (const s of Object.values(week.scores)) {
+    for (const c of s.detail.act.sessions) sessionPoints.set(c.id, c);
   }
 
   const inWeek = (r) => r.date >= week.from && r.date <= week.to;
@@ -186,15 +219,15 @@ function buildState(db, requested) {
       backfilled: r.created_at.slice(0, 10) > r.date,
     })),
     weighIns: Object.fromEntries(
-      PLAYERS.map((p) => [
-        p,
-        all.rows.weighIns.find((w) => w.player_id === p && w.week_start === week.from) || null,
+      all.players.map((p) => [
+        p.id,
+        all.rows.weighIns.find((w) => w.player_id === p.id && w.week_start === week.from) || null,
       ]),
     ),
     penalties: Object.fromEntries(
-      PLAYERS.map((p) => [
-        p,
-        all.rows.penalties.find((x) => x.player_id === p && x.week_start === week.from) || null,
+      all.players.map((p) => [
+        p.id,
+        all.rows.penalties.find((x) => x.player_id === p.id && x.week_start === week.from) || null,
       ]),
     ),
   };
@@ -207,7 +240,16 @@ function buildState(db, requested) {
       locked: all.rows.sessions.length + all.rows.pushups.length
         + all.rows.weighIns.length + all.rows.penalties.length > 0,
     },
-    players: all.players,
+    // `joinedWeek` en numéro : c'est ce que l'écran affiche, et le front n'a
+    // pas à connaître la règle qui transforme un lundi en numéro de semaine.
+    players: all.players.map((p) => ({
+      id: p.id,
+      name: p.name,
+      joinedWeek: p.joined_week ? weekNumber(p.joined_week, all.startDate) : 1,
+      archivedWeek: p.archived_week ? weekNumber(p.archived_week, all.startDate) : null,
+      archived: Boolean(p.archived_week),
+      weeksPlayed: all.weeksPlayed[p.id],
+    })),
     week: {
       number: week.number,
       from: week.from,
@@ -328,8 +370,7 @@ export function createApi(db, { accessCode, secure }) {
         from: w.from,
         to: w.to,
         defi: w.defi.label,
-        a: w.scores.a.total,
-        b: w.scores.b.total,
+        totals: Object.fromEntries(Object.entries(w.scores).map(([id, sc]) => [id, sc.total])),
       })),
       cumulative: all.cumulative,
       players: all.players,
@@ -352,7 +393,7 @@ export function createApi(db, { accessCode, secure }) {
       const done = replay('session', b.client_id);
       if (done) return res.json(state(weekNumber(done.date, startDate)));
 
-      const player = readPlayer(b.player);
+      const player = readPlayer(db, b.player, { write: true });
       const date = readDate(b.date, startDate);
       if (!DISCIPLINES.includes(b.discipline)) throw bad('Discipline inconnue.');
       const duration = readInt(b.duration_s, { min: 1, max: 36000, label: 'La durée' });
@@ -382,7 +423,7 @@ export function createApi(db, { accessCode, secure }) {
       const done = replay('pushup', b.client_id);
       if (done) return res.json(state(weekNumber(done.date, startDate)));
 
-      const player = readPlayer(b.player);
+      const player = readPlayer(db, b.player, { write: true });
       const date = readDate(b.date, startDate);
       const count = readInt(b.count, { min: 1, max: 2000, label: 'Le nombre de pompes' });
 
@@ -419,7 +460,7 @@ export function createApi(db, { accessCode, secure }) {
     try {
       const { startDate } = readSettings(db);
       const b = req.body ?? {};
-      const player = readPlayer(b.player);
+      const player = readPlayer(db, b.player, { write: true });
       const n = readInt(b.week, { min: 1, max: 520, label: 'La semaine' });
       const weekStart = weekStartOf(n, startDate);
       // Seules les pertes se notent : une prise vaut 0, on ne la chiffre pas.
@@ -447,7 +488,7 @@ export function createApi(db, { accessCode, secure }) {
     try {
       const { startDate } = readSettings(db);
       const b = req.body ?? {};
-      const player = readPlayer(b.player);
+      const player = readPlayer(db, b.player, { write: true });
       const n = readInt(b.week, { min: 1, max: 520, label: 'La semaine' });
       const weekStart = weekStartOf(n, startDate);
       if (!MALUS_DIVISORS.includes(b.divisor)) {
@@ -474,7 +515,7 @@ export function createApi(db, { accessCode, secure }) {
   api.delete('/penalties', (req, res, next) => {
     try {
       const { startDate } = readSettings(db);
-      const player = readPlayer(req.body?.player);
+      const player = readPlayer(db, req.body?.player);
       const n = readInt(req.body?.week, { min: 1, max: 520, label: 'La semaine' });
       db.prepare('DELETE FROM penalty WHERE player_id = ? AND week_start = ?')
         .run(player, weekStartOf(n, startDate));
@@ -487,7 +528,7 @@ export function createApi(db, { accessCode, secure }) {
   api.delete('/weighins', (req, res, next) => {
     try {
       const { startDate } = readSettings(db);
-      const player = readPlayer(req.body?.player);
+      const player = readPlayer(db, req.body?.player);
       const n = readInt(req.body?.week, { min: 1, max: 520, label: 'La semaine' });
       db.prepare('DELETE FROM weigh_in WHERE player_id = ? AND week_start = ?')
         .run(player, weekStartOf(n, startDate));
@@ -497,17 +538,63 @@ export function createApi(db, { accessCode, secure }) {
     }
   });
 
+  /* -- Joueurs ----------------------------------------------------------- *
+   * On n'efface jamais un joueur : on l'archive. Ses lignes restent au
+   * journal, dans l'export, et sur les semaines qu'il a jouées ; il disparaît
+   * seulement des cartes et du sélecteur à partir de la semaine d'archivage.
+   * Réversible, et rien n'est perdu — même logique que la suppression douce
+   * des séances.
+   * ---------------------------------------------------------------------- */
+
+  api.post('/players', (req, res, next) => {
+    try {
+      const { startDate } = readSettings(db);
+      const name = readName(req.body?.name, '');
+      if (!name) throw bad('Indiquez le nom du joueur.');
+      // Arrivée = la semaine en cours, jamais avant le début du challenge.
+      const joined = mondayOf(todayParis() < startDate ? startDate : todayParis());
+
+      const id = nextPlayerId(db);
+      db.prepare(
+        `INSERT INTO player (id, name, joined_week, archived_week, created_at)
+         VALUES (?, ?, ?, NULL, ?)`,
+      ).run(id, name, joined, now());
+
+      res.json(state());
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  api.put('/players/:id', (req, res, next) => {
+    try {
+      const { startDate } = readSettings(db);
+      const id = readPlayer(db, req.params.id);
+      const b = req.body ?? {};
+      const row = db.prepare('SELECT name, archived_week FROM player WHERE id = ?').get(id);
+
+      if (b.name !== undefined) {
+        db.prepare('UPDATE player SET name = ? WHERE id = ?').run(readName(b.name, row.name), id);
+      }
+      if (b.archived !== undefined) {
+        // Archivé à partir de la semaine en cours : les semaines déjà jouées
+        // gardent ses points, les suivantes ne l'affichent plus.
+        const week = b.archived
+          ? mondayOf(todayParis() < startDate ? startDate : todayParis())
+          : null;
+        db.prepare('UPDATE player SET archived_week = ? WHERE id = ?').run(week, id);
+      }
+      res.json(state());
+    } catch (err) {
+      next(err);
+    }
+  });
+
   api.put('/config', (req, res, next) => {
     try {
       const b = req.body ?? {};
       const settings = readSettings(db);
-      const upd = db.prepare('UPDATE player SET name = ? WHERE id = ?');
-
       db.transaction(() => {
-        for (const p of settings.players) {
-          const key = `name_${p.id}`;
-          if (b[key] !== undefined) upd.run(readName(b[key], p.name), p.id);
-        }
         if (b.weeks_total !== undefined) {
           setConfig(db, 'weeks_total', readInt(b.weeks_total, { min: 1, max: 520, label: 'Le nombre de semaines' }));
         }
