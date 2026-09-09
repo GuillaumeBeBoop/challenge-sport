@@ -63,13 +63,18 @@
             <option value="marche">Marche</option>
             <option value="velo">Vélo</option>
           </select>
-          <input type="text" id="sDur" inputmode="numeric" placeholder="32:45" aria-label="Durée">
+          <!-- `decimal` et non `numeric` : le pavé purement numérique des
+               téléphones n'a pas de touche « : », ce qui rendait un mm:ss
+               impossible à saisir. `decimal` ajoute le séparateur décimal
+               (virgule sur un clavier français), accepté par parseDuration
+               au même titre que les deux-points. -->
+          <input type="text" id="sDur" inputmode="decimal" placeholder="32:45" aria-label="Durée">
         </div>
         <div class="frow">
           <input type="date" id="sDate" aria-label="Date de la séance">
           <button class="primary" id="addS">Ajouter</button>
         </div>
-        <p class="hint" id="sHint">Temps en mouvement Garmin, pauses exclues. En minutes (<span class="mono">32</span>) ou en <span class="mono">mm:ss</span>.</p>
+        <p class="hint" id="sHint">Temps en mouvement Garmin, pauses exclues. En minutes (<span class="mono">32</span>) ou en minutes et secondes (<span class="mono">30:15</span>, <span class="mono">30,15</span> ou <span class="mono">30.15</span>).</p>
       </div>
 
       <div class="fbox">

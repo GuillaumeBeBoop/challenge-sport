@@ -72,9 +72,20 @@ function note(msg) {
 
 const pad = (n) => String(n).padStart(2, '0');
 
-/** Accepte « 32 », « 32:45 » ou « 1:05:00 ». Rend des secondes, ou null. */
+/**
+ * Accepte « 32 », « 32:45 », « 1:05:00 » — et les mêmes avec une virgule, un
+ * point, une apostrophe ou une espace en séparateur.
+ *
+ * Tolérer autant de séparateurs n'est pas de la coquetterie : le pavé numérique
+ * d'un téléphone n'a pas de touche « : ». Selon le clavier et la langue, ce
+ * qu'on obtient est une virgule ou un point, et l'un comme l'autre doit vouloir
+ * dire minutes:secondes.
+ *
+ * Conséquence assumée : « 30.5 » vaut 30 min 5 s, et non 30 minutes et demie.
+ * C'est pour ça que le champ affiche en clair ce qu'il a compris.
+ */
 function parseDuration(raw) {
-  const s = String(raw ?? '').trim().replace(',', ':');
+  const s = String(raw ?? '').trim().replace(/[,.'’\s]+/g, ':');
   if (!s) return null;
   const parts = s.split(':');
   if (parts.length > 3 || parts.some((p) => !/^\d+$/.test(p))) return null;
@@ -103,7 +114,7 @@ function fmtDuration(sec) {
   const m = Math.floor((sec % 3600) / 60);
   const s = sec % 60;
   if (h) return `${h} h ${pad(m)}`;
-  return s ? `${m} min ${pad(s)}` : `${m} min`;
+  return s ? `${m} min ${pad(s)} s` : `${m} min`;
 }
 
 const fmtKgAbs = (g) => `${(Math.abs(g) / 1000).toFixed(2).replace('.', ',')} kg`;
@@ -511,12 +522,31 @@ $('logout').addEventListener('click', async (ev) => {
 $('prev').addEventListener('click', () => load(state.week.number - 1).catch(fail));
 $('next').addEventListener('click', () => load(state.week.number + 1).catch(fail));
 
+// Ce que le champ a compris, affiché en clair pendant la frappe : « 30.15 »
+// vaut 30 min 15 s et non 30 minutes et demie, et c'est un écart qu'on ne
+// remarquerait jamais dans le journal.
+const S_HELP = $('sHint').innerHTML;
+$('sDur').addEventListener('input', () => {
+  const hint = $('sHint');
+  const raw = $('sDur').value.trim();
+  if (!raw) {
+    hint.className = 'hint';
+    hint.innerHTML = S_HELP;
+    return;
+  }
+  const seconds = parseDuration(raw);
+  hint.className = `hint${seconds ? '' : ' bad'}`;
+  hint.textContent = seconds
+    ? `Compris : ${fmtDuration(seconds)}.${seconds <= 1200 ? ' 20 min ou moins : 0 point.' : ''}`
+    : 'Durée illisible. Attendu : 32, ou 30:15 pour 30 min 15 s.';
+});
+
 $('addS').addEventListener('click', async () => {
   const hint = $('sHint');
   const seconds = parseDuration($('sDur').value);
   if (!seconds) {
     hint.className = 'hint bad';
-    hint.textContent = 'Durée illisible. Attendu : 32 ou 32:45.';
+    hint.textContent = 'Durée illisible. Attendu : 32, ou 30:15 pour 30 min 15 s.';
     return;
   }
   try {
@@ -531,7 +561,8 @@ $('addS').addEventListener('click', async () => {
     refresh(next);
     $('sDur').value = '';
     hint.className = `hint ${next.notice ? 'bad' : 'ok'}`;
-    hint.textContent = next.notice || `Séance enregistrée en semaine ${next.week.number}.`;
+    hint.textContent = next.notice
+      || `Séance de ${fmtDuration(seconds)} enregistrée en semaine ${next.week.number}.`;
   } catch (err) {
     hint.className = 'hint bad';
     hint.textContent = err.message;
