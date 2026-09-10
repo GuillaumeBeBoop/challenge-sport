@@ -55,6 +55,12 @@ Les points ne sont jamais stockés. Ils sont recalculés à chaque lecture depui
 les lignes brutes : corriger une ligne suffit, il n'y a jamais de total à
 rafraîchir.
 
+Le **vélo** rapporte moitié moins que la course et la marche : 1 point par
+20 minutes au lieu de 10. Le facteur ne joue que sur les points — pour le seuil
+des 20 minutes, les journées actives et les défis, une minute de vélo reste une
+minute. `HALF_RATE`, dans `src/scoring.js`, tient la liste des disciplines à
+demi-tarif.
+
 Le nombre de **joueurs** est libre : deux au départ, on en ajoute et on en
 archive depuis les réglages. Rien n'est jamais supprimé — archiver masque un
 joueur à partir de la semaine en cours, garde ses lignes et ses points passés,

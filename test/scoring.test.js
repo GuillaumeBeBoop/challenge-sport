@@ -20,15 +20,51 @@ const push = (date, count) => ({ id: ++seq, date, count });
 
 const score = (over = {}) => scoreWeek({ weekNumber: 1, sessions: [], pushups: [], ...over });
 
-test('activités — l’exemple du barème : 30 course + 40 vélo + 50 marche = 12 pts', () => {
+test('activités — l’exemple du barème : 30 course + 40 vélo + 50 marche = 10 pts', () => {
+  // Le vélo vaut moitié : 40 min n'en rapportent que 2, contre 4 à pied.
   const s = score({
     sessions: [sess(d(0), 30), sess(d(1), 40, 'velo'), sess(d(2), 50, 'marche')],
   });
-  assert.equal(s.act, 12);
+  assert.equal(s.act, 10);
   assert.deepEqual(
     s.detail.act.sessions.map((c) => c.points),
-    [3, 4, 5],
+    [3, 2, 5],
   );
+});
+
+test('vélo — 1 point par 20 min pleines, arrondi par séance comme le reste', () => {
+  // 20:00 pile ne compte pas du tout : la séance n'est pas valide.
+  const cases = [[20, 0], [25, 1], [39, 1], [40, 2], [59, 2], [60, 3], [90, 4]];
+  for (const [min, points] of cases) {
+    assert.equal(score({ sessions: [sess(d(0), min, 'velo')] }).act, points, `${min} min`);
+  }
+});
+
+test('vélo — la moitié porte sur les POINTS, pas sur les minutes', () => {
+  // 25 min de vélo rapportent 1 pt au lieu de 2, mais restent 25 minutes de
+  // sport : la séance est valide et la journée est active.
+  const s = score({ sessions: [sess(d(0), 25, 'velo')] });
+  assert.equal(s.act, 1);
+  assert.equal(s.detail.act.sessions[0].valid, true);
+  assert.equal(s.detail.reg.count, 1);
+});
+
+test('vélo — le seuil des 20 min reste en minutes réelles', () => {
+  assert.equal(score({ sessions: [secs(d(0), 1200, 'velo')] }).detail.act.sessions[0].valid, false);
+  assert.equal(score({ sessions: [secs(d(0), 1201, 'velo')] }).detail.act.sessions[0].valid, true);
+});
+
+test('vélo — dès qu’une séance est valide, elle vaut au moins 1 point', () => {
+  // Il n'existe pas de plage où le vélo compterait sans rien rapporter : le
+  // seuil de validité (20:00) et la première tranche (20 min) coïncident.
+  assert.equal(score({ sessions: [secs(d(0), 1201, 'velo')] }).act, 1);
+  assert.equal(score({ sessions: [sess(d(0), 39, 'velo')] }).act, 1);
+});
+
+test('vélo — le défi des 60 min se juge sur les minutes réelles', () => {
+  const s = score({ weekNumber: 1, sessions: [sess(d(0), 60, 'velo')] });
+  assert.equal(s.detail.defi.done, true);
+  assert.equal(s.defi, 5);
 });
 
 test('activités — l’arrondi est par séance, jamais sur le total', () => {

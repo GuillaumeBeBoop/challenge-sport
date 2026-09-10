@@ -21,6 +21,16 @@ import { defiForWeek } from './defis.js';
 export const VALID_SESSION_S = 1200;
 /** 1 point par tranche pleine de 10 minutes, arrondi PAR SÉANCE. */
 export const POINT_BLOCK_S = 600;
+/**
+ * Disciplines qui ne rapportent qu'à moitié : il faut deux fois plus de temps
+ * pour le même point. Le facteur porte sur les POINTS et sur eux seuls — les
+ * minutes restent des minutes pour le seuil de validité (20:00), pour les
+ * journées actives et pour les défis. 25 minutes de vélo rapportent moins
+ * qu'une course, mais rendent la journée active tout autant.
+ */
+export const HALF_RATE = new Set(['velo']);
+const blockFor = (discipline) =>
+  POINT_BLOCK_S * (HALF_RATE.has(discipline) ? 2 : 1);
 /** Une journée est active dès 30 pompes, même sans séance valide. */
 export const ACTIVE_PUSHUPS = 30;
 /** Un défi de 60 min se déclenche à 60:00 pile (>=), contrairement au > 20:00. */
@@ -110,7 +120,7 @@ export function scoreWeek({
       discipline: s.discipline,
       duration_s: s.duration_s,
       valid,
-      points: valid ? Math.floor(s.duration_s / POINT_BLOCK_S) : 0,
+      points: valid ? Math.floor(s.duration_s / blockFor(s.discipline)) : 0,
     };
   });
   const actRaw = sum(contributions.map((c) => c.points));
