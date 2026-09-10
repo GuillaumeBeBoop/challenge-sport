@@ -106,6 +106,16 @@ input[type=date]{font-size:.79rem}
 .rows > div{display:flex;align-items:center;gap:8px;padding:4px 0;
   border-bottom:1px solid var(--rule-soft)}
 .rows > div:last-child{border-bottom:0}
+/* Détail par discipline sous « Activités ». `display:block` doit l'emporter
+   sur la règle flex de `.rows > div`, d'où le sélecteur plus précis. */
+.rows > div.subrows{display:block;padding:2px 0 5px 16px;border-bottom:1px solid var(--rule-soft)}
+.subrows > span{display:flex;align-items:baseline;gap:8px;padding:1px 0;
+  font-size:.67rem;color:var(--faint)}
+.subrows i{font-style:normal}
+.subrows .n2{flex:1}
+.subrows .v2{font-weight:600;min-width:20px;text-align:right}
+.subrows .cap2{color:var(--s4);display:block;padding-top:2px}
+
 .sw{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
 .nm{flex:1;color:var(--muted)}
 .det{color:var(--faint);font-size:.68rem;text-align:right}

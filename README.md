@@ -59,7 +59,9 @@ Le **vélo** rapporte moitié moins que la course et la marche : 1 point par
 20 minutes au lieu de 10. Le facteur ne joue que sur les points — pour le seuil
 des 20 minutes, les journées actives et les défis, une minute de vélo reste une
 minute. `HALF_RATE`, dans `src/scoring.js`, tient la liste des disciplines à
-demi-tarif.
+demi-tarif. La carte de chaque joueur détaille les points par discipline sous
+la ligne « Activités » — sans quoi le total serait illisible, 100 minutes
+pouvant valoir 10 points ou 5 selon la discipline.
 
 Le nombre de **joueurs** est libre : deux au départ, on en ajoute et on en
 archive depuis les réglages. Rien n'est jamais supprimé — archiver masque un

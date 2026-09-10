@@ -29,6 +29,8 @@ export const POINT_BLOCK_S = 600;
  * qu'une course, mais rendent la journée active tout autant.
  */
 export const HALF_RATE = new Set(['velo']);
+/** Ordre d'affichage du détail par discipline. Le plein tarif d'abord. */
+export const DISCIPLINE_ORDER = ['course', 'marche', 'velo'];
 const blockFor = (discipline) =>
   POINT_BLOCK_S * (HALF_RATE.has(discipline) ? 2 : 1);
 /** Une journée est active dès 30 pompes, même sans séance valide. */
@@ -85,6 +87,30 @@ function buildDays(sessions, pushups) {
   }
   for (const p of pushups) slot(p.date).pushups += p.count;
   return days;
+}
+
+/**
+ * Regroupe les séances valides par discipline, dans un ordre fixe. Une
+ * discipline sans séance valide est absente : une ligne « Vélo 0 » sur la
+ * carte de quelqu'un qui n'en fait jamais serait du bruit.
+ */
+function byDiscipline(contributions) {
+  const valid = contributions.filter((c) => c.valid);
+  // L'ordre connu d'abord, puis tout le reste : une discipline ajoutée sans
+  // penser à DISCIPLINE_ORDER s'affiche à la fin plutôt que de disparaître.
+  const seen = [...new Set(valid.map((c) => c.discipline))];
+  const order = [
+    ...DISCIPLINE_ORDER.filter((d) => seen.includes(d)),
+    ...seen.filter((d) => !DISCIPLINE_ORDER.includes(d)).sort(),
+  ];
+  return order.map((discipline) => {
+    const mine = valid.filter((c) => c.discipline === discipline);
+    return {
+      discipline,
+      seconds: sum(mine.map((c) => c.duration_s)),
+      points: sum(mine.map((c) => c.points)),
+    };
+  });
 }
 
 function weightTier(lossGrams) {
@@ -179,6 +205,10 @@ export function scoreWeek({
         cap: CAPS.act,
         capped: actRaw > CAPS.act,
         validSeconds: sum(contributions.filter((c) => c.valid).map((c) => c.duration_s)),
+        // Le détail par discipline : les parts sont BRUTES, avant plafond.
+        // Les plafonner au prorata inventerait des chiffres que personne ne
+        // pourrait retrouver en additionnant son journal.
+        byDiscipline: byDiscipline(contributions),
         sessions: contributions,
       },
       pomp: {

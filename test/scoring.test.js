@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { scoreWeek, CAPS } from '../src/scoring.js';
+
+const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 import { defiForWeek } from '../src/defis.js';
 
 // Semaine 1 du challenge : lundi 7 → dimanche 13 septembre 2026.
@@ -30,6 +32,47 @@ test('activités — l’exemple du barème : 30 course + 40 vélo + 50 marche =
     s.detail.act.sessions.map((c) => c.points),
     [3, 2, 5],
   );
+});
+
+test('activités — le détail par discipline, ordre fixe et séances invalides exclues', () => {
+  const s = score({
+    sessions: [
+      sess(d(0), 30),               // course 3 pts
+      sess(d(1), 40, 'velo'),       // vélo   2 pts (demi-tarif)
+      sess(d(2), 50, 'marche'),     // marche 5 pts
+      secs(d(3), 1200),             // course 20:00 pile : invalide, ignorée
+    ],
+  });
+  assert.deepEqual(s.detail.act.byDiscipline, [
+    { discipline: 'course', seconds: 1800, points: 3 },
+    { discipline: 'marche', seconds: 3000, points: 5 },
+    { discipline: 'velo', seconds: 2400, points: 2 },
+  ]);
+  assert.equal(s.act, 10);
+});
+
+test('activités — une discipline non pratiquée n’apparaît pas dans le détail', () => {
+  const s = score({ sessions: [sess(d(0), 30)] });
+  assert.deepEqual(s.detail.act.byDiscipline.map((x) => x.discipline), ['course']);
+});
+
+test('activités — le détail par discipline est AVANT plafond, le total après', () => {
+  // 400 min de course (40 pts) + 200 min de vélo (10 pts) = 50, plafonné à 45.
+  // Les parts restent brutes : c'est ce qui rend le plafond lisible à l'écran.
+  const s = score({ sessions: [sess(d(0), 400), sess(d(1), 200, 'velo')] });
+  assert.deepEqual(s.detail.act.byDiscipline.map((x) => x.points), [40, 10]);
+  assert.equal(s.detail.act.raw, 50);
+  assert.equal(s.detail.act.capped, true);
+  assert.equal(s.act, 45);
+});
+
+test('activités — une discipline inconnue de l’ordre d’affichage n’est pas perdue', () => {
+  // Garde-fou : le jour où une discipline s'ajoute, l'oublier dans
+  // DISCIPLINE_ORDER la ferait disparaître du détail tout en comptant dans le
+  // total — un écart que personne ne saurait expliquer.
+  const s = score({ sessions: [sess(d(0), 30), sess(d(1), 30, 'natation')] });
+  assert.deepEqual(s.detail.act.byDiscipline.map((x) => x.discipline), ['course', 'natation']);
+  assert.equal(sum(s.detail.act.byDiscipline.map((x) => x.points)), s.act);
 });
 
 test('vélo — 1 point par 20 min pleines, arrondi par séance comme le reste', () => {

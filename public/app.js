@@ -191,6 +191,9 @@ function makeCard(p) {
   const mini = el('div', 'mini');
   const rows = el('div', 'rows');
   const cells = {};
+  // Le détail par discipline se loge sous la ligne « Activités » : c'est la
+  // seule source dont le total agrège des choses qui ne valent pas pareil.
+  const actSub = el('div', 'subrows');
   for (const [key, label, color] of SOURCES) {
     const row = el('div');
     const sw = el('span', 'sw');
@@ -199,6 +202,7 @@ function makeCard(p) {
     const vl = el('span', 'vl');
     row.append(sw, el('span', 'nm', label), det, vl, el('span', 'mx', `/ ${' '}`));
     rows.append(row);
+    if (key === 'act') rows.append(actSub);
     cells[key] = { det, vl, mx: row.lastChild };
   }
 
@@ -257,6 +261,25 @@ function makeCard(p) {
       }
 
       const d = s.detail;
+
+      // Une ligne par discipline pratiquée, plus la mention du plafond quand
+      // il mord : sans elle, la somme des parts dépasserait le total affiché
+      // sans que rien ne l'explique.
+      const parts = d.act.byDiscipline.map((x) => {
+        const line = el('span');
+        line.append(
+          el('i', 'n2', DISCIPLINES[x.discipline] ?? x.discipline),
+          el('i', 'd2', fmtDuration(x.seconds)),
+          el('i', 'v2', String(x.points)),
+        );
+        return line;
+      });
+      if (d.act.capped) {
+        parts.push(el('span', 'cap2', `plafonné à ${d.act.cap} — ${d.act.raw} pts atteints`));
+      }
+      actSub.replaceChildren(...parts);
+      actSub.hidden = parts.length === 0;
+
       const detail = {
         act: d.act.validSeconds ? fmtDuration(d.act.validSeconds) : '—',
         pomp: d.pomp.total ? `${d.pomp.total} pompes` : '—',
